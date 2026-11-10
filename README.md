@@ -1,5 +1,5 @@
 
-# Grain Storm 🌾
+# Grain Storm 
 
 A generalized agricultural monitoring and environmental data analysis framework using NASA datasets.
 
