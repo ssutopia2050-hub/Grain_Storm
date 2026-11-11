@@ -7,7 +7,10 @@ from grainstorm.sources.power import (
     fetch_daily_point,
     NasaPowerError,
 )
-
+from grainstorm.processing.quality import (
+    inspect_dataset,
+    print_quality_report,
+)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -67,7 +70,11 @@ def main():
         )
 
         dataframe.to_csv(output_path, index=False)
+        # Inspect the downloaded dataset.
+        quality_report = inspect_dataset(dataframe)
 
+        # Display the quality report.
+        print_quality_report(quality_report)
         metadata_path = output_path.with_suffix(".metadata.json")
 
         with metadata_path.open("w", encoding="utf-8") as file:
