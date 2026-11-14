@@ -2,10 +2,15 @@
 import unittest
 from datetime import date
 
-from grainstorm.input_resolver import resolve_rotation_inputs
+from grainstorm.input_resolver import _window, resolve_rotation_inputs
 
 
 class InputResolverTests(unittest.TestCase):
+    def test_generated_recurring_window_never_emits_leap_day(self):
+        window = _window(date(2024, 2, 15))[0]
+        self.assertEqual(window["start_month_day"], "02-01")
+        self.assertEqual(window["end_month_day"], "02-28")
+
     def test_ssurgo_gaez_and_faostat_values_fill_without_overwriting(self):
         data = {
             "crop_sequence": ["grain_maize", "wheat"],

@@ -26,6 +26,12 @@ from grainstorm.sources.ssurgo import SsurgoError, fetch_us_soil_context
 from grainstorm.sources.nass import NassError, fetch_us_crop_statistics
 from grainstorm.sources.forecast import ForecastError
 from grainstorm.rotation_advice import build_rotation_advice
+from grainstorm.intelligence.context_builder import ContextBuildError
+from grainstorm.intelligence.openai_engine import (
+    IntelligenceConfigurationError, IntelligenceGenerationError,
+)
+from grainstorm.intelligence.orchestrator import IntelligenceOrchestrator
+from grainstorm.intelligence.schemas import GrainStormDecisionReport
 
 
 CropId = Literal[
@@ -238,6 +244,23 @@ class RotationAdviceRequest(BaseModel):
         return self
 
 
+class IntelligenceRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    analysis: dict[str, Any]
+
+
+def get_intelligence_orchestrator() -> IntelligenceOrchestrator:
+    try:
+        return IntelligenceOrchestrator()
+    except (IntelligenceConfigurationError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="Invalid AI backend configuration.") from exc
+
+
+@app.get('/api/v1/intelligence/schema')
+def intelligence_schema() -> dict[str, Any]:
+    return GrainStormDecisionReport.model_json_schema()
+
+
 def _records_with_nulls(dataframe: pd.DataFrame) -> list[dict[str, Any]]:
     safe_frame = dataframe.astype(object).where(pd.notna(dataframe), None)
     return safe_frame.to_dict(orient="records")
@@ -342,6 +365,22 @@ def get_rotation_advice(request: RotationAdviceRequest,
     except (GaezError, SsurgoError, ForecastError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return JSONResponse(status_code=status_code, content=payload)
+
+
+@app.post('/api/v1/intelligence', response_model=GrainStormDecisionReport)
+async def create_intelligence_report(
+    request: IntelligenceRequest,
+    orchestrator: IntelligenceOrchestrator = Depends(get_intelligence_orchestrator),
+) -> GrainStormDecisionReport:
+    """Interpret an existing deterministic analysis, then validate the AI proposals."""
+    try:
+        return await orchestrator.analyze(request.analysis)
+    except ContextBuildError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntelligenceConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except IntelligenceGenerationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/v1/context")

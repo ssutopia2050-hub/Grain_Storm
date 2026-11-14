@@ -43,10 +43,15 @@ def _record(records: list[dict[str, Any]], *, path: str, value: Any, source: str
 
 def _window(anchor: date, radius_days: int = 14) -> list[dict[str, str]]:
     beginning, ending = anchor - timedelta(days=radius_days), anchor + timedelta(days=radius_days)
+
+    def recurring_month_day(value: date) -> str:
+        # Recurring planner windows must also exist in non-leap years.
+        return "02-28" if value.month == 2 and value.day == 29 else value.strftime("%m-%d")
+
     return [{
         "label": f"GAEZ anchor ±{radius_days} days",
-        "start_month_day": beginning.strftime("%m-%d"),
-        "end_month_day": ending.strftime("%m-%d"),
+        "start_month_day": recurring_month_day(beginning),
+        "end_month_day": recurring_month_day(ending),
     }]
 
 

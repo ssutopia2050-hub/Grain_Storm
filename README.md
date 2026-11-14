@@ -1,6 +1,11 @@
 
 # Grain Storm 
 
+The optional [AI decision engine](docs/intelligence.md) accepts an existing analysis
+at `POST /api/v1/intelligence`, generates an OpenAI structured decision draft, and
+independently checks it before returning a versioned frontend report. Configure
+`OPENAI_API_KEY` server-side to enable generation. Existing analysis works without it.
+
 A generalized agricultural monitoring and environmental data analysis framework using NASA datasets.
 
 See the [project TODO](docs/TODO.md) for current priorities and follow-up work.

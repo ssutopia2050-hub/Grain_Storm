@@ -35,6 +35,10 @@ completed, and add new tasks here before treating them as project commitments.
 
 ## Next priorities
 
+- [x] Add optional OpenAI Responses intelligence endpoint, compact deterministic evidence context, Pydantic draft/report schemas, independent proposal validation and offline SDK/API tests. See [intelligence API](intelligence.md).
+- [ ] Persist trusted analysis/configuration snapshots and rerun deterministic calculations for AI-proposed alternatives.
+- [ ] Add expert-reviewed AI evaluations, stage-resolved weather evidence, authenticated access, spending controls and live OpenAI integration testing before public use.
+
 - [x] Connect processed IMERG rainfall to planner weather and `POST /v1/plans`, retaining ERA5 ET0, source metadata, and strict missing-date handling. Prepared the July 19–August 1 sample and checked merge/API behavior.
 - [x] Add a shared location/date context API and SQLite cache: source/product/day keys, coverage and provenance, ERA5/POWER point fetches for missing intervals, and metadata-checked IMERG/SMAP imports. Connect the planner through `weather_source.provider: imerg_era5`.
 - [x] Implement satellite subset jobs on cache misses: single-cell/day IMERG OPeNDAP, SMAP AppEEARS point windows, durable task IDs, progress API, noninteractive worker authentication, shared-cache ingestion, and strict download limits. Offline subset/queue/API tests pass. See [worker setup](satellite_context.md).

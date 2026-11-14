@@ -203,30 +203,256 @@ def _environment(data: dict[str, Any], service: ContextService, latitude: float,
     return compact, rows, metadata, True
 
 
-def _advice(report: dict[str, Any]) -> dict[str, Any]:
-    scenarios = []
-    for scenario in report["scenarios"]:
-        steps = []
-        for crop in scenario["sequence"]:
-            steps.append({
-                "crop_id": crop["crop"],
-                "plant_on": crop["planting_date"],
-                "harvest_on": crop["planned_harvest_date"],
-                "prepare_irrigation_m3": crop["irrigation_m3_for_field"],
-                "unmet_water_mm": crop["unmet_water_mm"],
-                "estimated_n_shortfall_kg_ha": crop["estimated_n_shortfall_kg_ha"],
-                "estimated_p_shortfall_kg_ha": crop["estimated_p_shortfall_kg_ha"],
-                "estimated_k_shortfall_kg_ha": crop["estimated_k_shortfall_kg_ha"],
-            })
-        scenarios.append({
-            "name": scenario["name"], "calendar_status": scenario["calendar_status"],
-            "steps": steps, "total_irrigation_m3": scenario["total_irrigation_m3_for_field"],
-            "estimated_margin": scenario["estimated_total_margin_for_field"],
-            "currency": scenario["economics_currency"],
-            "economics": scenario["economics_summary"],
-            "preparation_flags": [item["message"] for item in scenario["schedule_issues"] + scenario["schedule_warnings"]],
+def _clamp(value: float, minimum: float = 0, maximum: float = 100) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def _decision_confidence(input_resolution: dict[str, Any] | None,
+                         economics_complete: bool) -> dict[str, Any]:
+    generated = (input_resolution or {}).get("generated_inputs", [])
+    critical = int((input_resolution or {}).get("critical_generated_count", 0))
+    low_confidence = sum(item.get("confidence") == "low" for item in generated)
+    reasons = []
+    if critical:
+        reasons.append(f"{critical} decision inputs are generated baselines rather than farm measurements.")
+    if low_confidence:
+        reasons.append(f"{low_confidence} generated inputs have low confidence.")
+    if not economics_complete:
+        reasons.append("Local crop prices and complete production costs were not supplied, so profitability is unknown.")
+    if critical or low_confidence:
+        level, score = "low", 35
+    elif not economics_complete:
+        level, score = "medium", 65
+    else:
+        level, score = "high", 85
+    return {
+        "level": level,
+        "score_0_to_100": score,
+        "meaning": "Confidence in the decision, not probability of crop success.",
+        "reasons": reasons or ["The main field, calendar, water, nutrient and economic inputs were supplied."],
+    }
+
+
+def _scenario_decision(scenario: dict[str, Any], field_area_ha: float,
+                       suitability: dict[str, float]) -> dict[str, Any]:
+    crops = scenario["sequence"]
+    crop_water_need = sum(float(crop.get("crop_water_need_mm") or 0) for crop in crops)
+    unmet_water = float(scenario.get("total_unmet_water_mm") or 0)
+    water_coverage = 100 if crop_water_need <= 0 else _clamp(100 * (1 - unmet_water / crop_water_need))
+
+    total_removal = 0.0
+    for crop in crops:
+        for nutrient in ("n", "p", "k"):
+            total_removal += float((crop.get("nutrient_budget", {}).get(nutrient) or {}).get(
+                "crop_total_removal_kg_ha", 0
+            ) or 0)
+    nutrient_shortfall = float(scenario.get("total_nutrient_shortfall_kg_ha") or 0)
+    nutrient_coverage = (100 if total_removal <= 0 else
+                         _clamp(100 * (1 - nutrient_shortfall / total_removal)))
+
+    crop_suitability = [suitability[crop["crop"]] for crop in crops if crop["crop"] in suitability]
+    suitability_score = (sum(crop_suitability) / len(crop_suitability)
+                         if crop_suitability else None)
+    pest_score = scenario.get("pest_disease_rotation_score")
+    rotation_score = None if pest_score is None else _clamp((float(pest_score) + 2) * 25)
+    components = {
+        "calendar_fit": {"score": 100 if scenario.get("calendar_feasible") is True else 0,
+                         "weight": 30},
+        "water_coverage": {"score": round(water_coverage, 2), "weight": 30},
+        "nutrient_coverage": {"score": round(nutrient_coverage, 2), "weight": 25},
+    }
+    if suitability_score is not None:
+        components["location_suitability"] = {"score": round(suitability_score, 2), "weight": 15}
+    if rotation_score is not None and len(crops) > 1:
+        components["rotation_health"] = {"score": round(rotation_score, 2), "weight": 15}
+    total_weight = sum(item["weight"] for item in components.values())
+    score = sum(item["score"] * item["weight"] for item in components.values()) / total_weight
+
+    risks: list[dict[str, Any]] = []
+    for issue in scenario.get("schedule_issues", []):
+        risks.append({"severity": "critical", "code": issue["code"],
+                      "crop_id": issue.get("crop"), "message": issue["message"]})
+    if unmet_water > 0:
+        deficit_m3 = round(unmet_water * field_area_ha * 10, 2)
+        risks.append({
+            "severity": "critical" if water_coverage < 80 else "high",
+            "code": "water_deficit",
+            "message": (
+                f"The plan covers only {water_coverage:.1f}% of modeled crop water demand; "
+                f"the field-scale deficit is about {deficit_m3:,.0f} m³."
+            ),
+            "value": {"unmet_mm": round(unmet_water, 2), "unmet_m3_for_field": deficit_m3},
         })
-    return {"scenarios": scenarios, "ranking": report["comparison"]["ranking"]}
+    if nutrient_shortfall > 0:
+        risks.append({
+            "severity": "high",
+            "code": "nutrient_shortfall",
+            "message": (
+                f"The conservative nutrient balance shows {nutrient_shortfall:.2f} kg/ha of combined "
+                "N/P/K shortfall; confirm each nutrient with a soil test before selecting fertilizer."
+            ),
+        })
+    for warning in scenario.get("schedule_warnings", []):
+        risks.append({"severity": "high", "code": warning["code"], "message": warning["message"]})
+
+    if scenario.get("calendar_feasible") is not True:
+        verdict = "do_not_plant_as_submitted"
+    elif any(risk["code"] == "water_deficit" and risk["severity"] == "critical" for risk in risks):
+        verdict = "high_risk_without_more_water"
+    elif risks:
+        verdict = "conditional"
+    else:
+        verdict = "viable"
+
+    steps = []
+    for crop in crops:
+        crop_deficit = float(crop.get("unmet_water_mm") or 0)
+        steps.append({
+            "crop_id": crop["crop"],
+            "plant_on": crop["planting_date"],
+            "harvest_on": crop["planned_harvest_date"],
+            "planting_window_status": crop.get("planting_window_status"),
+            "predicted_water_demand_mm": crop.get("crop_water_need_mm"),
+            "predicted_rain_mm": crop.get("rain_mm"),
+            "planned_irrigation_m3": crop.get("irrigation_m3_for_field"),
+            "prepare_irrigation_m3": crop.get("irrigation_m3_for_field"),
+            "unmet_water_mm": crop.get("unmet_water_mm"),
+            "uncovered_water_m3_for_field": round(crop_deficit * field_area_ha * 10, 2),
+            "estimated_n_shortfall_kg_ha": crop.get("estimated_n_shortfall_kg_ha"),
+            "estimated_p_shortfall_kg_ha": crop.get("estimated_p_shortfall_kg_ha"),
+            "estimated_k_shortfall_kg_ha": crop.get("estimated_k_shortfall_kg_ha"),
+            "estimated_n_shortfall": {
+                "kg_per_ha": crop.get("estimated_n_shortfall_kg_ha"),
+                "kg_for_field": round(float(crop.get("estimated_n_shortfall_kg_ha") or 0) * field_area_ha, 2),
+            },
+            "estimated_p_shortfall": {
+                "kg_per_ha": crop.get("estimated_p_shortfall_kg_ha"),
+                "kg_for_field": round(float(crop.get("estimated_p_shortfall_kg_ha") or 0) * field_area_ha, 2),
+            },
+            "estimated_k_shortfall": {
+                "kg_per_ha": crop.get("estimated_k_shortfall_kg_ha"),
+                "kg_for_field": round(float(crop.get("estimated_k_shortfall_kg_ha") or 0) * field_area_ha, 2),
+            },
+        })
+    return {
+        "name": scenario["name"],
+        "verdict": verdict,
+        "decision_score_0_to_100": round(score, 1),
+        "score_components": components,
+        "calendar_status": scenario["calendar_status"],
+        "water_demand_coverage_percent": round(water_coverage, 1),
+        "total_irrigation_m3": scenario["total_irrigation_m3_for_field"],
+        "economics_status": scenario["economics_status"],
+        "economics": scenario["economics_summary"],
+        "estimated_margin": scenario["estimated_total_margin_for_field"],
+        "currency": scenario["economics_currency"],
+        "risks": risks,
+        "crop_plan": steps,
+    }
+
+
+def _advice(report: dict[str, Any], input_resolution: dict[str, Any] | None = None,
+            crop_analysis: dict[str, Any] | None = None) -> dict[str, Any]:
+    field_area_ha = float(report["field"]["area_ha"])
+    suitability = {
+        item["crop_id"]: float(item["suitability_index_percent"])
+        for item in (crop_analysis or {}).get("suitability", {}).get("crops", [])
+        if item.get("suitability_index_percent") is not None
+    }
+    assessments = [_scenario_decision(scenario, field_area_ha, suitability)
+                   for scenario in report["scenarios"]]
+    eligible = [item for item in assessments if item["verdict"] != "do_not_plant_as_submitted"]
+    eligible.sort(key=lambda item: (-item["decision_score_0_to_100"], item["name"]))
+    winner = eligible[0] if len(assessments) > 1 and eligible else None
+    economics_complete = all(item["economics_status"] == "complete" for item in assessments)
+    confidence = _decision_confidence(input_resolution, economics_complete)
+
+    if not eligible:
+        decision = "revise_plan"
+        headline = "Do not plant this plan as submitted."
+        explanation = "Every evaluated scenario fails the planting calendar or planning horizon."
+    elif len(assessments) == 1:
+        decision = assessments[0]["verdict"]
+        if decision == "viable":
+            headline = f"{assessments[0]['name']} is viable under the supplied assumptions."
+        elif decision == "high_risk_without_more_water":
+            headline = f"Do not commit to {assessments[0]['name']} until its water deficit is covered."
+        else:
+            headline = f"{assessments[0]['name']} is only a conditional option."
+        explanation = "Only one crop order was evaluated, so this is a suitability check—not a rotation comparison."
+    else:
+        decision = "recommendation_available"
+        headline = f"Best evaluated order: {winner['name']}."
+        explanation = (
+            "This order has the strongest agronomic decision score among calendar-feasible scenarios. "
+            "Profitability is included only when complete local economics were supplied."
+        )
+
+    actions: list[dict[str, Any]] = []
+    critical_risks = [risk for item in assessments for risk in item["risks"]
+                      if risk["severity"] == "critical"]
+    if any(risk["code"] == "outside_planting_window" for risk in critical_risks):
+        calendar_anchors = {
+            item["crop_id"]: item.get("planting_date_for_target_year")
+            for item in (crop_analysis or {}).get("calendar", {}).get("crops", [])
+        }
+        affected = sorted({risk.get("crop_id") for risk in critical_risks
+                           if risk["code"] == "outside_planting_window" and risk.get("crop_id")})
+        actions.append({
+            "priority": 1, "action": "Move planting into the local crop window",
+            "reason": "The submitted date is outside the currently supplied planting window.",
+            "coarse_calendar_anchors": [
+                {"crop_id": crop_id, "suggested_date": calendar_anchors.get(crop_id),
+                 "note": "GAEZ historical grid anchor; confirm with local extension guidance."}
+                for crop_id in affected if calendar_anchors.get(crop_id)
+            ],
+        })
+    if any(risk["code"] == "water_deficit" for risk in critical_risks):
+        actions.append({
+            "priority": 2, "action": "Prove irrigation capacity before planting",
+            "reason": "Rainfall plus configured irrigation does not cover modeled crop demand.",
+        })
+    generated_paths = {item.get("path") for item in (input_resolution or {}).get("generated_inputs", [])}
+    if any("initial_" in str(path) and ("n_" in str(path) or "p_" in str(path) or "k_" in str(path))
+           for path in generated_paths):
+        actions.append({
+            "priority": 3, "action": "Add a current N/P/K soil test",
+            "reason": "Current nutrient values are conservative zero-credit placeholders, not measurements.",
+        })
+    if not economics_complete:
+        actions.append({
+            "priority": 4, "action": "Add local selling price and complete per-hectare costs",
+            "reason": "The API cannot recommend a profitable rotation without real market and farm costs.",
+        })
+
+    return {
+        "decision_summary": {
+            "decision": decision,
+            "headline": headline,
+            "explanation": explanation,
+            "recommended_scenario": None if winner is None else winner["name"],
+            "confidence": confidence,
+        },
+        "scenario_assessments": assessments,
+        "next_actions": actions,
+        "ranking": report["comparison"]["ranking"],
+        "method": {
+            "type": "transparent rule-based decision model",
+            "score_is_not": "a probability, guaranteed yield, or agronomist prescription",
+            "default_score_domains": ["calendar fit", "water coverage", "nutrient coverage",
+                                      "location suitability", "rotation health when available"],
+            "economics_rule": "Profit is never fabricated and does not influence the decision score when inputs are incomplete.",
+        },
+        # Kept for clients already using the earlier compact response.
+        "scenarios": [{
+            "name": item["name"], "calendar_status": item["calendar_status"],
+            "steps": item["crop_plan"], "total_irrigation_m3": item["total_irrigation_m3"],
+            "estimated_margin": item["estimated_margin"],
+            "currency": item["currency"],
+            "economics": item["economics"],
+            "preparation_flags": [risk["message"] for risk in item["risks"]],
+        } for item in assessments],
+    }
 
 
 def _aggregate_zone_reports(zone_reports: list[dict[str, Any]], ranking: Any,
@@ -550,5 +776,5 @@ def build_rotation_advice(data: dict[str, Any], context_service: ContextService)
     response.update({"status": "preliminary" if input_resolution and input_resolution["critical_generated_count"] else "complete",
                      "missing_inputs": [],
                      "calculation": {"report": report, "weather_metadata": weather_metadata},
-                     "advice": _advice(report)})
+                     "advice": _advice(report, input_resolution, response["crop_analysis"])})
     return 200, response

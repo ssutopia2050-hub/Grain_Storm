@@ -4,4 +4,5 @@ matplotlib>=3.9,<4.0
 fastapi[standard]>=0.115,<1.0
 earthaccess>=0.13,<1.0
 netCDF4>=1.6,<2.0
+openai>=2.0,<3.0
 

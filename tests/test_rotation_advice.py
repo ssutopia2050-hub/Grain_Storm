@@ -104,6 +104,9 @@ class RotationAdviceTests(unittest.TestCase):
         self.assertEqual(response["status"], "complete")
         self.assertIsNotNone(response["calculation"])
         self.assertEqual(response["advice"]["scenarios"][0]["steps"][0]["crop_id"], "grain_maize")
+        self.assertIn("decision_summary", response["advice"])
+        self.assertIn("scenario_assessments", response["advice"])
+        self.assertEqual(response["advice"]["scenario_assessments"][0]["verdict"], "viable")
         self.assertNotIn("records", response["environmental_context"]["sources"]["imerg"])
         self.assertEqual(response["environmental_context"]["sources"]["imerg"]["record_count"], 4)
 
@@ -175,6 +178,12 @@ class RotationAdviceTests(unittest.TestCase):
         self.assertEqual(status, 200)
         warnings = response["advice"]["scenarios"][0]["preparation_flags"]
         self.assertTrue(any("Paddy irrigation is incomplete" in warning for warning in warnings))
+        summary = response["advice"]["decision_summary"]
+        self.assertIn(summary["decision"], {"revise_plan", "conditional", "high_risk_without_more_water"})
+        assessment = response["advice"]["scenario_assessments"][0]
+        self.assertIn("decision_score_0_to_100", assessment)
+        self.assertTrue(any(risk["code"] == "water_model_limitation"
+                            for risk in assessment["risks"]))
         crop = response["calculation"]["report"]["scenarios"][0]["sequence"][0]
         self.assertIn("standing water", crop["water_model_warning"])
 
