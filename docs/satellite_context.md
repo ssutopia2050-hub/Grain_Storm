@@ -47,6 +47,14 @@ queueing satellite work (ERA5/POWER fetches still run synchronously). Jobs are
 durable; if the worker is stopped they remain queued. To process one job or
 poll one submitted task and then exit, add `--once`.
 
+On Render, the API automatically starts this single-host worker inside the one
+Uvicorn service. If a configured `/var/data` path is not writable because no
+persistent disk is attached, it logs a warning and uses
+`/tmp/grainstorm/environment.sqlite3`. That cache is intentionally ephemeral
+and resets when Render replaces or restarts the instance. Set
+`GRAINSTORM_EMBEDDED_WORKER=false` only when deploying a separate worker that
+shares a durable database.
+
 The worker prints a ready message and then waits. It only prints another line
 when a context request queues work or a job changes state. A quiet terminal
 after the ready message means the worker is healthy and idle.

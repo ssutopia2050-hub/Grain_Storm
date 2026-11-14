@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+import os
 
 import pandas as pd
 from fastapi.testclient import TestClient
@@ -40,6 +41,25 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(self.fetch.call_count, 1)
         self.query(end='2024-01-05')
         self.assertEqual(self.fetch.call_args.args[-2:], ('2024-01-04', '2024-01-05'))
+
+    def test_render_falls_back_when_configured_cache_directory_is_not_writable(self):
+        fallback = Path(self.temp.name) / 'render-cache.sqlite3'
+        real_mkdir = Path.mkdir
+
+        def mkdir(path, *args, **kwargs):
+            if path == Path('/var/data'):
+                raise PermissionError(13, 'Permission denied', str(path))
+            return real_mkdir(path, *args, **kwargs)
+
+        environment = {
+            'RENDER': 'true',
+            'GRAINSTORM_CACHE_DB': '/var/data/environment.sqlite3',
+            'GRAINSTORM_RENDER_CACHE_DB': str(fallback),
+        }
+        with patch.dict(os.environ, environment, clear=True), patch.object(Path, 'mkdir', mkdir):
+            service = ContextService(fetchers={}, auto_acquire=False)
+        self.assertEqual(service.db_path, fallback)
+        self.assertTrue(fallback.exists())
 
     def test_only_missing_disjoint_spans_are_fetched(self):
         self.seed('era5', [{'date': '2024-01-02', 'rain_mm': 0, 'et0_mm': 1}])

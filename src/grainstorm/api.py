@@ -1,7 +1,12 @@
 """HTTP API for the Grain Storm planning engine."""
 
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 from datetime import date, timedelta
+import logging
+import os
+import threading
+import time
 
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException
@@ -27,6 +32,43 @@ CropId = Literal[
 ]
 
 
+LOGGER = logging.getLogger(__name__)
+_embedded_worker_started = False
+_embedded_worker_lock = threading.Lock()
+
+
+def _run_embedded_satellite_worker() -> None:
+    """Run the single-host queue beside Render's one Uvicorn process."""
+    try:
+        from grainstorm.satellite_jobs import SatelliteJobs
+
+        queue = SatelliteJobs(ContextService())
+        LOGGER.info("Embedded satellite worker is watching %s.", queue.context.db_path)
+        while True:
+            if not queue.run_batch(concurrency=2):
+                time.sleep(3)
+    except Exception:
+        LOGGER.exception("Embedded satellite worker stopped unexpectedly.")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global _embedded_worker_started
+    enabled = os.environ.get("GRAINSTORM_EMBEDDED_WORKER", "true").lower() not in {
+        "0", "false", "no", "off",
+    }
+    if os.environ.get("RENDER") and enabled:
+        with _embedded_worker_lock:
+            if not _embedded_worker_started:
+                threading.Thread(
+                    target=_run_embedded_satellite_worker,
+                    name="grainstorm-satellite-worker",
+                    daemon=True,
+                ).start()
+                _embedded_worker_started = True
+    yield
+
+
 app = FastAPI(
     title="Grain Storm API",
     version="0.1.0",
@@ -34,6 +76,7 @@ app = FastAPI(
         "Early-stage crop sequence planning API. Water outputs use modeled "
         "weather and user-supplied crop/soil assumptions; they are not farm recommendations."
     ),
+    lifespan=lifespan,
 )
 
 app.add_middleware(

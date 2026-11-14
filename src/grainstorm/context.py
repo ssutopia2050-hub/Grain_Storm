@@ -10,6 +10,7 @@ import csv
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -18,6 +19,9 @@ import time
 
 from grainstorm.sources.era5 import fetch_daily_era5_weather
 from grainstorm.sources.power import fetch_daily_point
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 SPECS = {
@@ -77,7 +81,20 @@ class ContextService:
         self.db_path = Path(db_path or os.environ.get("GRAINSTORM_CACHE_DB", "data/cache/environment.sqlite3"))
         self.fetchers = fetchers if fetchers is not None else {"era5": fetch_daily_era5_weather, "power": fetch_daily_point}
         self.auto_acquire = auto_acquire
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            if not os.environ.get("RENDER"):
+                raise
+            requested = self.db_path
+            self.db_path = Path(os.environ.get(
+                "GRAINSTORM_RENDER_CACHE_DB", "/tmp/grainstorm/environment.sqlite3"
+            ))
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            LOGGER.warning(
+                "Cache path %s is not writable on Render; using ephemeral cache %s.",
+                requested, self.db_path,
+            )
         with self.connect() as conn:
             conn.execute("""CREATE TABLE IF NOT EXISTS daily_context (
                 source TEXT, product TEXT, location TEXT, day TEXT,
