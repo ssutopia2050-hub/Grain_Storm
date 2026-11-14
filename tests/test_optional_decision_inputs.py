@@ -71,6 +71,52 @@ class OptionalDecisionInputTests(unittest.TestCase):
         self.assertEqual(crop["net_soil_n_change_kg_ha"], -9)
         self.assertEqual(report["input_assessment"]["status"], "complete")
 
+    def test_farmer_can_skip_or_replace_irrigation_recommendations(self):
+        def run(decision):
+            return simulate_scenarios({
+                "field": {
+                    "area_ha": 1, "soil_water_capacity_mm": 100,
+                    "initial_soil_water_mm": 0, "initial_mineral_n_kg_ha": 10,
+                    "irrigation": {"enabled": True, "trigger_fraction": .5,
+                        "application_efficiency": 1, "source": "Farm system",
+                        "decisions": [decision]},
+                },
+                "crop_catalog": {"crop": {"duration_days": 1, "water_need_mm": 10,
+                                             "net_soil_n_change_kg_ha": 0}},
+                "weather": [{"date": "2024-01-01", "rain_mm": 0, "et0_mm": 1}],
+                "scenarios": [{"name": "Decision", "start_date": "2024-01-01", "crops": ["crop"]}],
+            })["scenarios"][0]
+
+        skipped = run({"date": "2024-01-01", "action": "skip", "source": "Farmer"})
+        self.assertEqual(skipped["total_irrigation_mm"], 0)
+        self.assertEqual(skipped["irrigation_events"][0]["decision"], "skipped")
+        replaced = run({"date": "2024-01-01", "action": "replace", "amount_mm": 25,
+                        "source": "Farmer"})
+        self.assertEqual(replaced["total_irrigation_mm"], 25)
+        self.assertEqual(replaced["irrigation_events"][0]["recommended_withdrawal_mm"], 50)
+
+    def test_optional_dual_coefficient_model_reports_stress_and_evaporation(self):
+        report = simulate_scenarios({
+            "field": {"area_ha": 1, "soil_water_capacity_mm": 100,
+                      "initial_soil_water_mm": 100, "initial_mineral_n_kg_ha": 10},
+            "crop_catalog": {"crop": {
+                "duration_days": 4, "stage_days": [1, 1, 1, 1],
+                "net_soil_n_change_kg_ha": 0,
+                "water_model": {"method": "fao56_dual", "kcb_initial": .15,
+                    "kcb_mid": 1.15, "kcb_end": .5, "depletion_fraction": .5,
+                    "readily_evaporable_water_mm": 8, "total_evaporable_water_mm": 20,
+                    "wetted_fraction": 1, "crop_height_m": 1, "kc_max": 1.2,
+                    "source": "FAO-56 fixture"},
+            }},
+            "weather": [{"date": f"2024-01-0{day}", "rain_mm": 0, "et0_mm": 5}
+                        for day in range(1, 5)],
+            "scenarios": [{"name": "Dual", "start_date": "2024-01-01", "crops": ["crop"]}],
+        })
+        crop = report["scenarios"][0]["sequence"][0]
+        self.assertEqual(crop["water_model"]["method"], "fao56_dual")
+        self.assertGreater(crop["crop_water_need_mm"], 0)
+        self.assertIn("average_soil_evaporation_coefficient_ke", crop["water_model"])
+
 
 if __name__ == "__main__":
     unittest.main()

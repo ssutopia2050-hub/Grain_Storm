@@ -28,7 +28,8 @@ export type CropProfileId =
   | "wheat"
   | "sorghum"
   | "chickpea"
-  | "sunflower";
+  | "sunflower"
+  | "rice";
 
 export interface CropProfileSummary {
   id: CropProfileId;
@@ -67,7 +68,7 @@ export interface CropProfile {
   aliases: string[];
   scope: string;
   gaez: {
-    crop_code: "mze" | "soy" | "whe" | "srg" | "chk" | "sfl";
+    crop_code: "mze" | "soy" | "whe" | "srg" | "chk" | "sfl" | "rcw";
     location_suitability_status: "not_evaluated";
     note: string;
   };
@@ -132,7 +133,7 @@ export interface CropSuitabilityRequest extends Point {
 export interface CropSuitabilityResult {
   crop_id: CropProfileId;
   gaez_crop: string;
-  gaez_crop_code: "mze" | "soy" | "whe" | "srg" | "chk" | "sfl";
+  gaez_crop_code: "mze" | "soy" | "whe" | "srg" | "chk" | "sfl" | "rcw";
   status: "complete";
   suitability_index_raw: number;
   suitability_index_percent: number;
@@ -272,7 +273,12 @@ export interface UsCropStatisticsResponse {
     price_per_tonne: number;
     currency: "USD";
     gross_revenue_per_ha: number;
-    unit_conversion: {bushel_kg: number; acres_per_hectare: number; source: string};
+    unit_conversion: {
+      source_unit_kg: number;
+      source_unit: "bushel" | "hundredweight";
+      acres_per_hectare: number;
+      source: string;
+    };
     planner_economics_partial: {
       expected_yield_t_ha: number;
       price_per_tonne: number;
@@ -433,7 +439,33 @@ export interface FieldInput {
     variable_cost_per_m3?: number;
     currency?: string;
     source: string;
+    decisions?: IrrigationDecision[];
   };
+}
+
+export interface IrrigationDecision {
+  date: ISODate;
+  action: "accept" | "skip" | "replace";
+  amount_mm?: number; // required for replace; invalid for accept/skip
+  crop_id?: string; // omit to apply to whichever crop is active that day
+  source: string;
+  note?: string;
+}
+
+export interface Fao56DualWaterModel {
+  method: "fao56_dual";
+  kcb_initial: number;
+  kcb_mid: number;
+  kcb_end: number;
+  depletion_fraction: number;
+  readily_evaporable_water_mm: number;
+  total_evaporable_water_mm: number;
+  wetted_fraction: number;
+  crop_height_m: number;
+  kc_max: number;
+  initial_surface_depletion_mm?: number;
+  source: string;
+  source_url?: string;
 }
 
 export interface CropInput {
@@ -446,6 +478,7 @@ export interface CropInput {
   profile_version?: string;
   calendar_id?: string;
   water_profile_source_id?: string;
+  water_model?: Fao56DualWaterModel; // optional; legacy stage_kc remains supported
   nitrogen_assumption_source?: string;
   nitrogen_assumption_note?: string;
   planting_windows?: Array<{
@@ -456,6 +489,7 @@ export interface CropInput {
   root_depth_m?: number;
   variety?: {name: string; maturity_days: number; source: string};
   agronomy?: {
+    expected_yield_t_ha?: number; // permits nutrient screening without fabricated economics
     nutrient_removal_kg_per_tonne: Partial<Record<"n" | "p" | "k", number>>;
     fertilizer_applied_kg_ha?: Partial<Record<"n" | "p" | "k", number>>;
     fertilizer_recovery_fraction?: Partial<Record<"n" | "p" | "k", number>>;
@@ -556,6 +590,7 @@ export interface CropResult {
   duration_days: number;
   rain_mm: number;
   irrigation_mm: number;
+  effective_irrigation_mm: number;
   crop_water_need_mm: number;
   root_depth_m: number | null;
   effective_root_zone_capacity_mm: number;
@@ -583,6 +618,17 @@ export interface CropResult {
   nutrient_budget: Record<"n" | "p" | "k", Record<string, unknown> | null>;
   soil_effects: Record<string, unknown> | null;
   economics: Record<string, unknown> | null;
+  water_model?: {
+    method: "fao56_dual";
+    average_kcb: number;
+    average_stress_coefficient_ks: number;
+    average_soil_evaporation_coefficient_ke: number;
+    water_stress_days: number;
+    final_surface_depletion_mm: number;
+    source: string;
+    source_url?: string;
+  } | null;
+  water_model_warning?: string | null;
   input_provenance: Partial<{
     profile_id: CropProfileId;
     profile_version: string;
@@ -601,6 +647,11 @@ export interface IrrigationEvent {
   application_efficiency: number;
   amount_m3_for_field: number;
   crop: string;
+  recommended_withdrawal_mm?: number;
+  decision?: "automatic" | "accepted" | "skipped" | "replaced";
+  decision_source?: string | null;
+  decision_note?: string | null;
+  zone_id?: string;
 }
 
 export interface ScenarioResult {
@@ -717,6 +768,25 @@ export interface RotationAdviceRequest {
   crop_inputs?: Partial<Record<CropProfileId, Partial<CropInput>>>;
   rotation_effect_catalog?: PlanRequest["rotation_effect_catalog"];
   ranking?: PlanRequest["ranking"];
+  weather_scenario?: WeatherScenarioDay[];
+  management_zones?: ManagementZoneInput[];
+  autofill_missing?: boolean; // default true; false restores strict missing-input blocking
+}
+
+export interface WeatherScenarioDay {
+  date: ISODate;
+  rain_mm: number;
+  et0_mm: number;
+}
+
+export interface ManagementZoneInput {
+  id: string;
+  name?: string;
+  area_fraction: number; // all zone fractions must total 1.0
+  field_inputs?: Partial<FieldInput>;
+  soil_test?: NonNullable<FieldInput["soil_test"]>;
+  management?: NonNullable<FieldInput["management"]>;
+  irrigation?: NonNullable<FieldInput["irrigation"]>;
 }
 
 export interface RotationAdviceResponse {
@@ -729,14 +799,39 @@ export interface RotationAdviceResponse {
     area_acres: number;
     perimeter_m: number;
     method: string;
+    management_zones?: Array<{
+      id: string;
+      name: string;
+      area_fraction: number;
+      area_ha: number;
+    }>;
   };
   request: Record<string, unknown>;
   crop_analysis: Record<string, unknown>;
   soil_context: SoilContextResponse;
   environmental_context: ContextResponse | Record<string, unknown> | null;
   missing_inputs: Array<{path: string; reason: string}>;
+  input_resolution: null | {
+    mode: "automatic_baseline";
+    generated_count: number;
+    critical_generated_count: number;
+    warning: string;
+    generated_inputs: Array<{
+      path: string;
+      value: unknown;
+      source: string;
+      source_url: string | null;
+      confidence: "low" | "medium" | "high";
+      replaceable_by_farmer: true;
+      note: string;
+    }>;
+    recommended_replacements: Array<{path: string; reason: string}>;
+  };
   jobs?: JobSummary[];
-  calculation: {report: PlanResponse["report"]; weather_metadata: Record<string, unknown> | null} | null;
+  calculation: {
+    report: PlanResponse["report"] & {zones?: Array<Record<string, unknown>>};
+    weather_metadata: Record<string, unknown> | null;
+  } | null;
   advice: Record<string, unknown> | null;
   limitations: string[];
 }

@@ -15,6 +15,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from grainstorm.fao56 import dual_coefficient_day, validate_dual_config
+
 
 def _number(value: Any, label: str, *, minimum: float | None = None) -> float:
     if isinstance(value, bool):
@@ -154,12 +156,18 @@ def _input_assessment(config: dict[str, Any]) -> dict[str, Any]:
     domains["management"] = {"status": "complete" if isinstance(management, dict) else "not_provided"}
     if not isinstance(management, dict):
         missing.append("field.management")
+    resolution = config.get("input_resolution")
     return {
         "status": "complete" if not missing else "partial",
         "provided_features_are_calculated": True,
         "missing_inputs": missing,
         "domains": domains,
-        "note": "Missing optional inputs are not guessed; affected outputs remain incomplete or not evaluated.",
+        "note": (
+            "Caller inputs are used first; generated planning baselines and their provenance are listed in input_resolution."
+            if resolution else
+            "Missing optional inputs are not guessed; affected outputs remain incomplete or not evaluated."
+        ),
+        "input_resolution": resolution,
     }
 
 
@@ -179,9 +187,15 @@ def _nutrient_change(crop: dict[str, Any], crop_name: str, nutrient: str) -> tup
             raise ValueError(f"{crop_name}.agronomy.nutrient_removal_kg_per_tonne must be an object.")
         if nutrient in removal:
             economics = crop.get("economics")
-            if not isinstance(economics, dict) or economics.get("expected_yield_t_ha") is None:
-                raise ValueError(f"{crop_name}.economics.expected_yield_t_ha is required to derive nutrient removal.")
-            yield_t_ha = _number(economics["expected_yield_t_ha"], f"{crop_name}.expected_yield_t_ha", minimum=0)
+            expected_yield = agronomy.get("expected_yield_t_ha")
+            if expected_yield is None and isinstance(economics, dict):
+                expected_yield = economics.get("expected_yield_t_ha")
+            if expected_yield is None:
+                raise ValueError(
+                    f"{crop_name}.agronomy.expected_yield_t_ha or economics.expected_yield_t_ha "
+                    "is required to derive nutrient removal."
+                )
+            yield_t_ha = _number(expected_yield, f"{crop_name}.expected_yield_t_ha", minimum=0)
             total_removal = yield_t_ha * _number(removal[nutrient], f"{crop_name}.{nutrient}_removal", minimum=0)
             applied_map = agronomy.get("fertilizer_applied_kg_ha", {})
             recovery_map = agronomy.get("fertilizer_recovery_fraction", {})
@@ -527,6 +541,38 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(irrigation_currency, str) or len(irrigation_currency.strip()) != 3:
             raise ValueError("field.irrigation.currency must be supplied with irrigation cost.")
         irrigation_currency = irrigation_currency.strip().upper()
+    raw_decisions = irrigation.get("decisions", [])
+    if not isinstance(raw_decisions, list):
+        raise ValueError("field.irrigation.decisions must be an array.")
+    irrigation_decisions = {}
+    for index, decision in enumerate(raw_decisions):
+        if not isinstance(decision, dict):
+            raise ValueError(f"field.irrigation.decisions[{index}] must be an object.")
+        try:
+            decision_day = date.fromisoformat(decision["date"]).isoformat()
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"field.irrigation.decisions[{index}].date must use YYYY-MM-DD.") from exc
+        action = decision.get("action")
+        if action not in {"accept", "skip", "replace"}:
+            raise ValueError("Irrigation decision action must be accept, skip or replace.")
+        source = decision.get("source")
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("Every irrigation decision requires source.")
+        amount = decision.get("amount_mm")
+        if action == "replace":
+            amount = _number(amount, "irrigation decision amount_mm", minimum=0)
+        elif amount is not None:
+            raise ValueError("amount_mm is only valid for a replace irrigation decision.")
+        crop_filter = decision.get("crop_id")
+        if crop_filter is not None and (not isinstance(crop_filter, str) or not crop_filter):
+            raise ValueError("Irrigation decision crop_id must be a non-empty string.")
+        key = (decision_day, crop_filter)
+        if key in irrigation_decisions:
+            raise ValueError("Duplicate irrigation decision for the same date and crop.")
+        irrigation_decisions[key] = {
+            "action": action, "amount_mm": amount, "source": source.strip(),
+            "note": decision.get("note"), "crop_id": crop_filter,
+        }
     rotation_effect_catalog = config.get("rotation_effect_catalog", {})
     if not isinstance(rotation_effect_catalog, dict):
         raise ValueError("rotation_effect_catalog must be an object.")
@@ -700,6 +746,12 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                 for required in ("name", "maturity_days", "source"):
                     if variety.get(required) in (None, ""):
                         raise ValueError(f"{crop_name}.variety.{required} is required.")
+            water_model_warning = crop.get("water_model_warning")
+            if water_model_warning:
+                schedule_warnings.append({
+                    "code": "water_model_limitation", "crop": crop_name,
+                    "message": str(water_model_warning),
+                })
             duration_input = crop.get("duration_days")
             if duration_input is None and variety is not None:
                 duration_input = variety.get("maturity_days")
@@ -709,15 +761,21 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
             duration = int(duration_value)
             stage_kc = crop.get("stage_kc")
             stage_days = crop.get("stage_days")
-            if stage_kc is not None or stage_days is not None:
-                if not isinstance(stage_kc, list) or len(stage_kc) != 4:
+            dual_config = None
+            if crop.get("water_model") is not None:
+                dual_config = validate_dual_config(crop["water_model"])
+            if stage_kc is not None or stage_days is not None or dual_config is not None:
+                if dual_config is None and (not isinstance(stage_kc, list) or len(stage_kc) != 4):
                     raise ValueError(f"{crop_name}.stage_kc must contain four FAO stage values.")
                 if not isinstance(stage_days, list) or len(stage_days) != 4:
                     raise ValueError(f"{crop_name}.stage_days must contain four whole-day lengths.")
-                stage_kc = [
-                    _number(value, f"{crop_name}.stage_kc", minimum=0)
-                    for value in stage_kc
-                ]
+                if stage_kc is not None:
+                    if not isinstance(stage_kc, list) or len(stage_kc) != 4:
+                        raise ValueError(f"{crop_name}.stage_kc must contain four FAO stage values.")
+                    stage_kc = [
+                        _number(value, f"{crop_name}.stage_kc", minimum=0)
+                        for value in stage_kc
+                    ]
                 stage_days_numeric = [
                     _number(value, f"{crop_name}.stage_days", minimum=1)
                     for value in stage_days
@@ -763,6 +821,11 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
             crop_effective_irrigation = 0.0
             crop_unmet = 0.0
             crop_need_total = 0.0
+            surface_depletion = (
+                float(dual_config["initial_surface_depletion_mm"])
+                if dual_config is not None else None
+            )
+            dual_totals = {"kcb": 0.0, "ks": 0.0, "ke": 0.0, "stress_days": 0}
 
             for day_index in range(duration):
                 day = crop_start + timedelta(days=day_index)
@@ -775,31 +838,69 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                 crop_rain += rain
                 total_rain_mm += rain
                 water_mm = min(effective_capacity, water_mm + rain)
+                if surface_depletion is not None:
+                    surface_depletion = max(0.0, surface_depletion - rain)
 
                 threshold = effective_capacity * (1 - trigger)
+                recommended_withdrawal = 0.0
                 if irrigation_enabled and water_mm < threshold:
                     effective_needed = threshold - water_mm
-                    withdrawal = effective_needed / irrigation_efficiency
-                    if max_irrigation_mm is not None:
-                        withdrawal = min(withdrawal, max(0.0, max_irrigation_mm - scenario_irrigation_withdrawal))
+                    recommended_withdrawal = effective_needed / irrigation_efficiency
+                decision = irrigation_decisions.get((day.isoformat(), crop_name))
+                if decision is None:
+                    decision = irrigation_decisions.get((day.isoformat(), None))
+                if decision is None or decision["action"] == "accept":
+                    withdrawal = recommended_withdrawal
+                    decision_action = "automatic" if decision is None else "accepted"
+                elif decision["action"] == "skip":
+                    withdrawal = 0.0
+                    decision_action = "skipped"
+                else:
+                    withdrawal = decision["amount_mm"]
+                    decision_action = "replaced"
+                if max_irrigation_mm is not None:
+                    withdrawal = min(withdrawal, max(0.0, max_irrigation_mm - scenario_irrigation_withdrawal))
+                if withdrawal or recommended_withdrawal or decision is not None:
                     effective_amount = withdrawal * irrigation_efficiency
-                    water_mm += effective_amount
+                    water_mm = min(effective_capacity, water_mm + effective_amount)
+                    if surface_depletion is not None:
+                        surface_depletion = max(0.0, surface_depletion - effective_amount)
                     crop_irrigation += withdrawal
                     crop_effective_irrigation += effective_amount
                     scenario_irrigation_withdrawal += withdrawal
                     scenario_effective_irrigation += effective_amount
-                    if withdrawal:
-                        irrigation_events.append({
-                            "date": day.isoformat(),
-                            "amount_mm": round(withdrawal, 2),
-                            "withdrawal_mm": round(withdrawal, 2),
-                            "effective_amount_mm": round(effective_amount, 2),
-                            "application_efficiency": irrigation_efficiency,
-                            "amount_m3_for_field": round(withdrawal * area_ha * 10, 2),
-                            "crop": crop_name,
-                        })
+                    irrigation_events.append({
+                        "date": day.isoformat(),
+                        "recommended_withdrawal_mm": round(recommended_withdrawal, 2),
+                        "decision": decision_action,
+                        "decision_source": None if decision is None else decision["source"],
+                        "decision_note": None if decision is None else decision["note"],
+                        "amount_mm": round(withdrawal, 2),
+                        "withdrawal_mm": round(withdrawal, 2),
+                        "effective_amount_mm": round(effective_amount, 2),
+                        "application_efficiency": irrigation_efficiency,
+                        "amount_m3_for_field": round(withdrawal * area_ha * 10, 2),
+                        "crop": crop_name,
+                    })
 
-                if total_need is not None:
+                if dual_config is not None:
+                    if et0 is None:
+                        raise ValueError(f"ET0 is missing on {day} for crop '{crop_name}'.")
+                    dual_day = dual_coefficient_day(
+                        et0_mm=et0, water_mm=water_mm, capacity_mm=effective_capacity,
+                        surface_depletion_mm=surface_depletion, day_index=day_index,
+                        stage_days=stage_days, config=dual_config,
+                    )
+                    daily_need = dual_day["crop_water_need_mm"]
+                    surface_depletion = min(
+                        float(dual_config["total_evaporable_water_mm"]),
+                        surface_depletion + dual_day["soil_evaporation_mm"],
+                    )
+                    for key in ("kcb", "ks", "ke"):
+                        dual_totals[key] += dual_day[key]
+                    if dual_day["ks"] < 0.999:
+                        dual_totals["stress_days"] += 1
+                elif total_need is not None:
                     daily_need = total_need / duration
                 else:
                     if et0 is None:
@@ -930,6 +1031,19 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                 "estimated_k_shortfall_kg_ha": None if k_shortfall is None else round(k_shortfall, 2),
                 "nutrient_budget": {"n": n_budget, "p": p_budget, "k": k_budget},
                 "soil_effects": soil_effect_result,
+                "water_model": (
+                    None if dual_config is None else {
+                        "method": "fao56_dual",
+                        "average_kcb": round(dual_totals["kcb"] / duration, 4),
+                        "average_stress_coefficient_ks": round(dual_totals["ks"] / duration, 4),
+                        "average_soil_evaporation_coefficient_ke": round(dual_totals["ke"] / duration, 4),
+                        "water_stress_days": dual_totals["stress_days"],
+                        "final_surface_depletion_mm": round(surface_depletion, 3),
+                        "source": dual_config["source"],
+                        "source_url": dual_config["source_url"],
+                    }
+                ),
+                "water_model_warning": water_model_warning,
                 "economics": economics,
                 "input_provenance": {
                     key: crop.get(key)
@@ -1047,6 +1161,7 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                 "variable_cost_per_m3": irrigation_cost_per_m3,
                 "currency": irrigation_currency,
                 "source": irrigation_source,
+                "farmer_decisions_supplied": len(raw_decisions),
             },
             "soil_test": soil_test or None,
             "management": management,

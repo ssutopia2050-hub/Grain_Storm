@@ -7,6 +7,13 @@ See the [project TODO](docs/TODO.md) for current priorities and follow-up work.
 Frontend developers should start with the [v1 API contract](docs/frontend_api_contract.md)
 and its [copyable TypeScript definitions](docs/frontend-api-types.ts).
 The normal product flow is now consolidated in the [single rotation-advice endpoint](docs/frontend_rotation_advice.md).
+It also supports optional 16-day operational weather, explicit longer-term
+weather scenarios, FAO-56 dual crop coefficients, sourced farmer irrigation
+overrides and area-fraction management zones. Existing requests continue to
+use the original stage-coefficient path unless these precision inputs are sent.
+Missing local inputs are resolved into transparent preliminary baselines by
+default; use `autofill_missing: false` for strict validation. Generated inputs
+are returned with their source, confidence and farmer-replacement guidance.
 The current challenge alignment and resource shortlist are in
 [challenge resource triage](docs/challenge_resources_triage.md).
 The v1 crop pair and reference assumptions are documented in

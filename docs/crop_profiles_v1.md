@@ -3,7 +3,7 @@
 ## Supported starter catalog
 
 The starter catalog contains **grain maize, grain soybean, wheat, grain sorghum,
-chickpea, and sunflower**. Maize, soybean and sorghum refer to dry grain/seed
+chickpea, sunflower, and wetland/paddy rice**. Maize, soybean and sorghum refer to dry grain/seed
 rather than sweet corn, vegetable soybean, or forage sorghum.
 
 The first model scope is software support for comparing these crops in a sequence on the same field across growing seasons. It is not a claim that both crops suit every location. A location should only be evaluated when both crops are locally viable and the required crop calendar and field inputs are available. Local crop variety and planting/harvest calendars must override generic baselines.
@@ -20,6 +20,7 @@ FAO crop-water guidance divides annual crops into initial, crop-development, mid
 | Sorghum | 120–130 days | 0.35 | 0.75 | 1.10 | 0.65 |
 | Chickpea | 90–180 days | 0.45 | 0.75 | 1.10 | 0.50 |
 | Sunflower | 125–130 days | 0.35 | 0.75 | 1.15 | 0.55 |
+| Paddy rice | 90–150 days | 1.10 | 1.10 | 1.20 | 1.00 |
 
 These are **reference values, not universal crop constants**. The FAO guide says growing period depends on variety, climate, and planting date, and advises using local data when available. Crop coefficients also need adjustment for climate and wetting practices. The reference method estimates crop evapotranspiration from reference evapotranspiration and a crop-stage coefficient (`ETc = ETo × Kc`).
 
@@ -50,9 +51,16 @@ frontend to copy crop numbers:
   the exact `crop_catalog` shape used by `POST /v1/plans`.
 
 The supported IDs are `grain_maize`, `grain_soybean`, `wheat`, `sorghum`,
-`chickpea`, and `sunflower`. The profile version remains `fao-reference-v1`.
+`chickpea`, `sunflower`, and `rice`. The profile version remains `fao-reference-v1`.
 Each crop exposes two reference calendars, while location-specific GAEZ cycle
 data and locally confirmed varieties can override them.
+
+Rice uses the irrigated GAEZ wetland-rice (`rcw`) datasets and is the exception
+to the “two calendars” description, with one
+150-day FAO reference calendar. The rice Kc values estimate crop ET, not total
+paddy irrigation. Land preparation, puddling/soil saturation, standing water,
+seepage, percolation and intentional drainage are not yet represented, so the
+API emits an explicit water-model warning for every rice scenario.
 
 The template endpoint intentionally returns `ready_for_planner: false` until a
 signed `net_soil_n_change_kg_ha` and its `nitrogen_source` are supplied. This

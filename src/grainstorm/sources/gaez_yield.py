@@ -15,7 +15,9 @@ SERVER = "https://gaez-services.fao.org/server/rest/services/res06/ImageServer"
 CROPS = {
     "grain_maize": "Maize", "grain_soybean": "Soybean", "wheat": "Wheat",
     "sorghum": "Sorghum", "chickpea": None, "sunflower": "Sunflower",
+    "rice": "Wetland rice",
 }
+WATER_SUPPLY = {"rice": "Irrigated"}
 
 
 def _payload(response: requests.Response, operation: str) -> dict[str, Any]:
@@ -33,9 +35,10 @@ def _payload(response: requests.Response, operation: str) -> dict[str, Any]:
 
 @lru_cache(maxsize=len(CROPS))
 def _raster(crop_id: str) -> dict[str, Any]:
+    water_supply = WATER_SUPPLY.get(crop_id, "Rainfed")
     try:
         response = requests.get(f"{SERVER}/query", params={
-            "where": f"crop='{CROPS[crop_id]}' AND year='2010' AND water_supply='Rainfed' AND variable='Yield'",
+            "where": f"crop='{CROPS[crop_id]}' AND year='2010' AND water_supply='{water_supply}' AND variable='Yield'",
             "outFields": "OBJECTID,Name,variable,year,crop,water_supply,units,download_url",
             "returnGeometry": "false", "resultRecordCount": 2, "f": "json",
         }, timeout=30)
@@ -100,7 +103,8 @@ def fetch_location_yield_baselines(latitude: float, longitude: float,
     return {
         "requested_point": {"latitude": latitude, "longitude": longitude},
         "dataset": {"provider": "FAO/IIASA", "product": "GAEZ v4 Module VI downscaled actual yield",
-                    "year": 2010, "water_supply": "Rainfed", "units": "t/ha", "service": SERVER},
+                    "year": 2010, "water_supply": "Rainfed except rice: Irrigated",
+                    "units": "t/ha", "service": SERVER},
         "crops": crops,
         "limitations": [
             "This is a downscaled 2010 historical grid-cell baseline, not a current farm yield forecast.",

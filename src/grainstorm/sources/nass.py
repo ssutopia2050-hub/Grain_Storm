@@ -13,12 +13,14 @@ DOCUMENTATION = "https://quickstats.nass.usda.gov/api"
 CROPS = {
     "grain_maize": "CORN", "grain_soybean": "SOYBEANS", "wheat": "WHEAT",
     "sorghum": "SORGHUM", "chickpea": "CHICKPEAS", "sunflower": "SUNFLOWER",
+    "rice": "RICE",
 }
 BUSHEL_KG = {
     "grain_maize": 25.40117272, "grain_soybean": 27.2155422,
     "wheat": 27.2155422, "sorghum": 25.40117272,
 }
 ACRES_PER_HECTARE = 2.4710538147
+CWT_KG = 45.359237
 CONVERSION_SOURCE = "https://www.ams.usda.gov/sites/default/files/media/Book2.pdf"
 
 
@@ -109,22 +111,24 @@ def fetch_us_crop_statistics(state_alpha: str, year: int, crop_ids: list[str],
     records = [record for batch in batches for record in batch]
     selected_baselines = []
     for crop_id in crop_ids:
+        yield_unit = "CWT / ACRE" if crop_id == "rice" else "BU / ACRE"
+        price_unit = "$ / CWT" if crop_id == "rice" else "$ / BU"
         final_yields = [record for record in records
                         if record["crop_id"] == crop_id and record["statistic"] == "yield"
                         and record["reference_period"] == "YEAR"
-                        and record["unit"] == "BU / ACRE"
+                        and record["unit"] == yield_unit
                         and (crop_id != "grain_maize" or record["utilization"] == "GRAIN")
                         and record["value"] is not None]
         final_prices = [record for record in records
                         if record["crop_id"] == crop_id and record["statistic"] == "price_received"
                         and record["reference_period"] == "MARKETING YEAR"
-                        and record["unit"] == "$ / BU" and record["value"] is not None]
+                        and record["unit"] == price_unit and record["value"] is not None]
         if len(final_yields) != 1 or len(final_prices) != 1:
             continue
         yield_record, price_record = final_yields[0], final_prices[0]
-        bushel_kg = BUSHEL_KG[crop_id]
-        yield_t_ha = yield_record["value"] * bushel_kg / 1000 * ACRES_PER_HECTARE
-        price_per_tonne = price_record["value"] / bushel_kg * 1000
+        unit_kg = CWT_KG if crop_id == "rice" else BUSHEL_KG[crop_id]
+        yield_t_ha = yield_record["value"] * unit_kg / 1000 * ACRES_PER_HECTARE
+        price_per_tonne = price_record["value"] / unit_kg * 1000
         selected_baselines.append({
             "crop_id": crop_id,
             "selection_status": "complete",
@@ -134,7 +138,8 @@ def fetch_us_crop_statistics(state_alpha: str, year: int, crop_ids: list[str],
             "gross_revenue_per_ha": round(yield_t_ha * price_per_tonne, 2),
             "source_records": {"yield": yield_record, "price": price_record},
             "unit_conversion": {
-                "bushel_kg": bushel_kg,
+                "source_unit_kg": unit_kg,
+                "source_unit": "hundredweight" if crop_id == "rice" else "bushel",
                 "acres_per_hectare": ACRES_PER_HECTARE,
                 "source": CONVERSION_SOURCE,
             },

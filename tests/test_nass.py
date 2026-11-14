@@ -64,6 +64,20 @@ class NassTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         self.assertEqual(result.json()["status"], "auth_required")
 
+    @patch("grainstorm.sources.nass.requests.get")
+    def test_rice_hundredweight_records_become_metric_baseline(self, get):
+        get.side_effect = [
+            response([{"Value": "75", "unit_desc": "CWT / ACRE", "short_desc": "RICE - YIELD",
+                       "reference_period_desc": "YEAR", "year": "2024", "state_name": "ARKANSAS"}]),
+            response([{"Value": "15", "unit_desc": "$ / CWT", "short_desc": "RICE - PRICE RECEIVED",
+                       "reference_period_desc": "MARKETING YEAR", "year": "2024", "state_name": "ARKANSAS"}]),
+        ]
+        result = fetch_us_crop_statistics("AR", 2024, ["rice"], api_key="secret")
+        baseline = result["selected_baselines"][0]
+        self.assertAlmostEqual(baseline["yield_t_ha"], 8.4064, places=4)
+        self.assertAlmostEqual(baseline["price_per_tonne"], 330.69, places=2)
+        self.assertEqual(baseline["unit_conversion"]["source_unit"], "hundredweight")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,7 +50,8 @@ def _profile(*, crop_id: str, name: str, scientific_name: str, form: str,
              aliases: list[str], gaez_code: str, duration: tuple[int, int],
              calendars: list[tuple[str, int, list[int]]], kc: list[float],
              water_range: tuple[int, int], drought_sensitivity: str,
-             root_depth_m: float, extra_source_ids: tuple[str, ...] = ()) -> dict[str, Any]:
+             root_depth_m: float, extra_source_ids: tuple[str, ...] = (),
+             extra_water_limitations: tuple[str, ...] = ()) -> dict[str, Any]:
     return {
         "id": crop_id,
         "profile_version": PROFILE_VERSION,
@@ -93,6 +94,7 @@ def _profile(*, crop_id: str, name: str, scientific_name: str, form: str,
                 "Reference Kc values depend on climate, wind, humidity and wetting frequency.",
                 "The current planner applies one average coefficient per stage; it does not yet interpolate a FAO-56 Kc curve.",
                 "Indicative seasonal water need is context only and is not used when daily ET0 and stage Kc are available.",
+                *extra_water_limitations,
             ],
         },
         "rooting": {
@@ -192,6 +194,18 @@ PROFILES = {
         ],
         kc=[0.35, 0.75, 1.15, 0.55], water_range=(600, 1000),
         drought_sensitivity="low-medium", root_depth_m=0.8,
+    ),
+    "rice": _profile(
+        crop_id="rice", name="Paddy rice", scientific_name="Oryza sativa L.",
+        form="Paddy grain (wetland rice)", aliases=["rice", "paddy", "wetland rice"],
+        gaez_code="rcw", duration=(90, 150),
+        calendars=[("fao_reference_150", 150, [30, 30, 60, 30])],
+        kc=[1.10, 1.10, 1.20, 1.00], water_range=(450, 700),
+        drought_sensitivity="high", root_depth_m=0.5,
+        extra_water_limitations=(
+            "The Kc water range represents crop evapotranspiration, not total paddy irrigation demand.",
+            "The current planner does not model puddling/soil saturation, a standing water layer, seepage, percolation, or intentional drainage; its rice irrigation volume is therefore incomplete.",
+        ),
     ),
 }
 

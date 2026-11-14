@@ -21,6 +21,8 @@ CROPS = {
     "sorghum": {"gaez_name": "Sorghum", "prefix": "sorg200b", "root_depth_m": 1.0},
     "chickpea": {"gaez_name": "Chickpea", "prefix": "chck200b", "root_depth_m": 0.6},
     "sunflower": {"gaez_name": "Sunflower", "prefix": "sunf200b", "root_depth_m": 0.8},
+    "rice": {"gaez_name": "Wetland rice", "prefix": "ricw200a", "root_depth_m": 0.5,
+             "water_supply": "Available water content of 200 mm/m (under irrigation conditions)"},
 }
 ROOT_SOURCE = "https://www.fao.org/4/y5749e/y5749e0j.htm"
 
@@ -41,9 +43,10 @@ def _payload(response: requests.Response, operation: str) -> dict[str, Any]:
 @lru_cache(maxsize=len(CROPS))
 def _resolve_calendar_rasters(crop_id: str) -> dict[str, dict[str, Any]]:
     spec = CROPS[crop_id]
+    water_supply = spec.get("water_supply", WATER_SUPPLY)
     where = (
         f"crop='{spec['gaez_name']}' AND year='1981-2010' AND model='CRUTS32' "
-        f"AND rcp='Historical' AND water_supply='{WATER_SUPPLY}' AND input_level='High' "
+        f"AND rcp='Historical' AND water_supply='{water_supply}' AND input_level='High' "
         "AND (variable='Beginning of crop growth cycle (day)' "
         "OR variable='Length of crop growth cycle (days)')"
     )
@@ -143,7 +146,7 @@ def fetch_location_crop_calendars(latitude: float, longitude: float,
         "dataset": {
             "provider": "FAO/IIASA",
             "product": "GAEZ v4 Module II crop growth cycle",
-            "baseline": "CRUTS32 Historical 1981-2010, high input, rain-fed, AWC 200 mm/m",
+            "baseline": "CRUTS32 Historical 1981-2010, high input, AWC 200 mm/m; rain-fed except irrigated wetland rice",
             "spatial_resolution": "5 arc-minutes (approximately 9 km at the equator)",
             "service": GAEZ_CALENDAR_SERVER,
         },

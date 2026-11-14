@@ -35,7 +35,30 @@ the preferred planning period:
 ```
 
 The backend calculates the polygon centroid and approximate hectares. It then
-returns one of three product states.
+returns one of four product states.
+
+`autofill_missing` defaults to `true`. The backend therefore produces a usable
+`preliminary` calculation when local values are absent. Caller values always
+win. Generated values and their source, confidence and replacement guidance are
+listed under `input_resolution`. Send `"autofill_missing": false` to restore
+strict `needs_input` behavior.
+
+Automatic baseline mode can supply:
+
+- soil available-water capacity from SSURGO where available, otherwise an FAO
+  medium-texture reference baseline;
+- a clearly labelled 50% initial-water planning state;
+- zero-credit N/P/K starting scenarios, which show maximum modeled nutrient
+  shortfall and never pretend to be soil tests;
+- GAEZ planting anchors expanded into provisional ±14-day windows;
+- a 14-day harvest-to-planting turnaround assumption;
+- FAOSTAT crop nutrient-removal coefficients combined with the GAEZ historical
+  rainfed yield baseline;
+- provisional pest/disease break scores from botanical-family changes.
+
+The backend deliberately does not invent local crop prices or production
+costs. Water, calendar and nutrient screening still run; margin remains
+unavailable until economics are supplied.
 
 The `field` result includes `area_m2`, `area_ha`, `area_acres` and
 `perimeter_m`. All whole-field water, nutrient, production, cost and revenue
@@ -97,6 +120,45 @@ Each crop can add `planting_windows`, `variety`, `agronomy` and `economics`
 under `crop_inputs.<crop_id>`. The live Swagger schema and
 `frontend-api-types.ts` contain their field shapes.
 
+## Optional precision controls
+
+These inputs improve the calculation without changing the endpoint:
+
+- `weather_scenario`: one `{date, rain_mm, et0_mm}` row for every planning
+  day. Use this for seasonal dry/expected/wet comparisons. Caller-supplied
+  values are clearly labelled as a scenario, not a forecast.
+- `management_zones`: one to twenty area-fraction zones. Each zone inherits
+  the main field inputs and can override soil test, management or irrigation
+  values. Fractions must total `1.0`; the backend calculates each zone and then
+  produces area-weighted field results.
+- `irrigation.decisions`: dated farmer choices with `accept`, `skip` or
+  `replace`. A replacement also supplies `amount_mm`. The result preserves the
+  automatic recommendation and the farmer's actual choice.
+- `crop_inputs.<crop_id>.water_model`: an optional `fao56_dual` coefficient
+  model that separates basal crop transpiration, exposed-soil evaporation and
+  water-stress reduction. The existing four-stage `stage_kc` model remains the
+  default, so older requests continue to work.
+
+Example farmer override:
+
+```json
+{
+  "irrigation": {
+    "enabled": true,
+    "application_efficiency": 0.75,
+    "source": "Farmer irrigation plan",
+    "decisions": [
+      {
+        "date": "2026-11-16",
+        "action": "replace",
+        "amount_mm": 18,
+        "source": "Farmer confirmed pump availability"
+      }
+    ]
+  }
+}
+```
+
 Economics accepts either the older `variable_cost_per_ha` lump sum or detailed
 `cost_items`. Each item has a name/category/source and exactly one of
 `amount_per_ha` or `amount_for_field`. Categories can cover seed, fertilizer,
@@ -123,6 +185,9 @@ detail screens. It contains:
 - pest/disease transition effects when supplied;
 - revenue, costs and estimated margin;
 - scenario comparison/ranking when enough inputs exist;
+- optional per-zone calculations and area-weighted field totals;
+- the automatic and farmer-adjusted amount for every irrigation decision;
+- dual-coefficient water diagnostics when that model was requested;
 - explicit warnings, assumptions and missing domains.
 
 The product response contains compact IMERG/ERA5 status and record counts, not
@@ -130,17 +195,27 @@ hundreds of raw daily rows. Those rows remain in the backend cache and are fed
 directly into the calculation. SMAP is available through the diagnostic context
 API but is not downloaded or treated as a blocker for rotation advice.
 
+### `200` — `status: "preliminary"`
+
+The calculation ran using one or more generated planning baselines. Render the
+results, show `input_resolution.generated_inputs`, and invite the farmer to
+replace the low-confidence values listed in `recommended_replacements`.
+
 ## Important behavior
 
-- Historical IMERG/ERA5 observations cannot predict future daily rainfall. A
-  future planning period therefore returns `needs_input` for an approved future
-  weather/climate scenario rather than fabricating weather.
+- Historical periods use IMERG/ERA5. A future period within the operational
+  horizon can use the Open-Meteo daily forecast (up to 16 days). Longer future
+  periods return `needs_input` for a complete `weather_scenario` rather than
+  pretending a seasonal scenario is a precise daily forecast.
 - Current N/P/K are never inferred from satellite soil moisture.
-- GAEZ planting dates are coarse anchors; local planting windows remain a
-  farmer/agronomist input.
+- GAEZ planting dates are coarse anchors. Automatic mode makes a provisional
+  ±14-day window; a local farmer/agronomist window should replace it.
 - The first and last polygon coordinates must be identical.
 - Supported crop IDs are `grain_maize`, `grain_soybean`, `wheat`, `sorghum`,
-  `chickpea`, and `sunflower`. A rotation request can contain up to four crops.
+  `chickpea`, `sunflower`, and `rice`. A rotation request can contain up to four crops.
+- `rice` means wetland/paddy rice. Its ET is calculated, but the returned
+  irrigation amount excludes puddling, standing-water, seepage, percolation
+  and drainage requirements; display the `water_model_limitation` warning.
 - GAEZ has no standalone 2010 chickpea actual-yield raster, so that specific
   baseline is returned as unavailable; the frontend must request a local yield.
 

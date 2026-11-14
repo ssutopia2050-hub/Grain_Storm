@@ -25,6 +25,8 @@ CROPS = {
     "sorghum": {"gaez_name": "Sorghum", "gaez_code": "srg", "raster_name": "sxHr_srg"},
     "chickpea": {"gaez_name": "Chickpea", "gaez_code": "chk", "raster_name": "sxHr_chk"},
     "sunflower": {"gaez_name": "Sunflower", "gaez_code": "sfl", "raster_name": "sxHr_sfl"},
+    "rice": {"gaez_name": "Wetland rice", "gaez_code": "rcw", "raster_name": "suHg_rcw",
+             "water_supply": "Gravity Irrigation", "land_basis": "current cropland in grid cell"},
 }
 
 
@@ -66,10 +68,11 @@ def _payload(response: requests.Response, operation: str) -> dict[str, Any]:
 def _resolve_raster(crop_id: str) -> dict[str, Any]:
     """Resolve and cache the exact official raster instead of trusting mosaic order."""
     spec = CROPS[crop_id]
+    water_supply = spec.get("water_supply", "Rainfed")
     where = (
         f"name='{spec['raster_name']}' AND crop='{spec['gaez_name']}' "
         "AND year='1981-2010' AND model='CRUTS32' AND rcp='Historical' "
-        "AND water_supply='Rainfed' AND input_level='High'"
+        f"AND water_supply='{water_supply}' AND input_level='High'"
     )
     try:
         response = requests.get(
@@ -151,6 +154,11 @@ def _sample_crop(crop_id: str, latitude: float, longitude: float) -> dict[str, A
                 "water_supply", "input_level", "c02_fertilization", "units", "download_url",
             )
         },
+        "baseline_override": (
+            {"water_supply": CROPS[crop_id]["water_supply"],
+             "land_basis": CROPS[crop_id]["land_basis"]}
+            if CROPS[crop_id].get("water_supply") else None
+        ),
     }
 
 
@@ -182,6 +190,10 @@ def fetch_location_suitability(latitude: float, longitude: float,
             "spatial_resolution": "5 arc-minutes (approximately 9 km at the equator)",
             "index_scale": "0-10000; divide by 100 for percentage",
             "baseline": BASELINE,
+            "crop_specific_overrides": {
+                "rice": {"water_supply": "Gravity Irrigation",
+                         "land_basis": "current cropland in grid cell"},
+            },
         },
         "crops": crops,
         "interpretation": (

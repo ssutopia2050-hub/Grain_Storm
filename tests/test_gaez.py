@@ -71,7 +71,7 @@ class GaezTests(unittest.TestCase):
         self.assertIn("257854", get.call_args_list[1].kwargs["params"]["mosaicRule"])
 
     def test_validation_rejects_unknown_or_duplicate_crops(self):
-        for crop_ids in ([], ["grain_maize", "grain_maize"], ["rice"]):
+        for crop_ids in ([], ["grain_maize", "grain_maize"], ["not_a_crop"]):
             with self.assertRaises(ValueError):
                 fetch_location_suitability(30.34, 76.39, crop_ids)
         with self.assertRaises(ValueError):

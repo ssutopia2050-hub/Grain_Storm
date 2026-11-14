@@ -100,7 +100,7 @@ providers or the background worker are available.
 ## 2. Crop profiles and planner templates
 
 `GET /v1/crops` lists `grain_maize`, `grain_soybean`, `wheat`, `sorghum`,
-`chickpea`, and `sunflower`.
+`chickpea`, `sunflower`, and `rice` (wetland/paddy rice).
 Use `GET /v1/crops/{crop_id}` to populate the crop details and calendar picker.
 The response includes FAO reference stage lengths and Kc values, limitations,
 GAEZ identifiers for future suitability work, and clickable source URLs.
@@ -146,7 +146,7 @@ Call `POST /v1/crop-suitability` after the user chooses a point:
 ```
 
 If `crop_ids` is omitted, maize and soybean are queried as the default pair.
-Any subset of the six supported crops can be supplied. The current endpoint
+Any subset of the seven supported crops can be supplied. The current endpoint
 fixes the comparison assumptions so results remain comparable: GAEZ v4,
 historical CRUTS32 climate for 1981–2010, rainfed, high
 input, and the all-land suitability index. It samples the official FAO/IIASA
@@ -188,6 +188,13 @@ the synthetic `expected_yield_t_ha`, but remains an old regional baseline—not 
 current farm forecast. GAEZ Module VI has no standalone chickpea raster, so
 chickpea returns an explicit unavailable result. Prices, costs, and a local
 chickpea yield must come from a current market/local source.
+
+Rice uses the verified irrigated GAEZ `Wetland rice` (`rcw`) layers (gravity-
+irrigation/current-cropland suitability, irrigated crop calendar and irrigated
+2010 yield). Its profile Kc values
+cover crop evapotranspiration only. The current planner does not model paddy
+land preparation, puddling/saturation, standing water, seepage, percolation or
+intentional drainage, so rice irrigation totals must be shown as incomplete.
 
 ### Soil context
 
@@ -687,7 +694,9 @@ decision score. It does **not** return:
 - stress-adjusted yield or future market-price predictions;
 - a validated confidence score;
 - measured soil N/P/K;
-- future weather forecasts.
+- seasonal or long-range daily weather forecasts. The rotation endpoint can
+  use a bounded Open-Meteo operational forecast (up to 16 days); longer future
+  plans require an explicit caller-supplied weather scenario.
 
 The frontend must not label the highest weighted score “NASA recommended.” Show
 the selected weights, exclusions, input sources and warning beside the rank.

@@ -24,11 +24,12 @@ from grainstorm.sources.gaez_calendar import fetch_location_crop_calendars
 from grainstorm.sources.gaez_yield import fetch_location_yield_baselines
 from grainstorm.sources.ssurgo import SsurgoError, fetch_us_soil_context
 from grainstorm.sources.nass import NassError, fetch_us_crop_statistics
+from grainstorm.sources.forecast import ForecastError
 from grainstorm.rotation_advice import build_rotation_advice
 
 
 CropId = Literal[
-    "grain_maize", "grain_soybean", "wheat", "sorghum", "chickpea", "sunflower"
+    "grain_maize", "grain_soybean", "wheat", "sorghum", "chickpea", "sunflower", "rice"
 ]
 
 
@@ -165,7 +166,7 @@ class CropSuitabilityRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     crop_ids: list[CropId] = Field(
-        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=6
+        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=7
     )
 
     @model_validator(mode="after")
@@ -188,7 +189,7 @@ class UsCropStatisticsRequest(BaseModel):
     state_alpha: str = Field(pattern=r"^[A-Za-z]{2}$")
     year: int = Field(ge=1900, le=2200)
     crop_ids: list[CropId] = Field(
-        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=6)
+        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=7)
 
     @model_validator(mode="after")
     def validate_distinct_crops(self):
@@ -218,6 +219,9 @@ class RotationAdviceRequest(BaseModel):
     crop_inputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     rotation_effect_catalog: dict[str, dict[str, Any]] = Field(default_factory=dict)
     ranking: dict[str, Any] | None = None
+    weather_scenario: list[dict[str, Any]] | None = None
+    management_zones: list[dict[str, Any]] | None = None
+    autofill_missing: bool = True
 
     @model_validator(mode="after")
     def validate_rotation_request(self):
@@ -335,7 +339,7 @@ def get_rotation_advice(request: RotationAdviceRequest,
         status_code, payload = build_rotation_advice(request.model_dump(), service)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except (GaezError, SsurgoError) as exc:
+    except (GaezError, SsurgoError, ForecastError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return JSONResponse(status_code=status_code, content=payload)
 

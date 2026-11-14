@@ -46,6 +46,19 @@ class GaezYieldTests(unittest.TestCase):
         self.assertEqual(result["crops"][0]["status"], "unavailable")
         self.assertIsNone(result["crops"][0]["historical_yield_t_ha"])
 
+    @patch("grainstorm.sources.gaez_yield.requests.get")
+    def test_wetland_rice_uses_verified_gaez_raster(self, get):
+        get.side_effect = [
+            response({"features": [{"attributes": {"OBJECTID": 786, "Name": "rcw_2010_yld",
+                "variable": "Yield", "year": "2010", "crop": "Wetland rice",
+                "water_supply": "Irrigated", "units": "t/ha", "download_url": "rice-url"}}]}),
+            response({"value": "4.25"}),
+        ]
+        result = fetch_location_yield_baselines(30.34, 76.39, ["rice"])
+        self.assertEqual(result["crops"][0]["historical_yield_t_ha"], 4.25)
+        self.assertIn("Wetland rice", get.call_args_list[0].kwargs["params"]["where"])
+        self.assertIn("Irrigated", get.call_args_list[0].kwargs["params"]["where"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,7 @@ class CropProfileTests(unittest.TestCase):
     def test_profiles_are_consistent_and_have_no_fake_nitrogen_default(self):
         self.assertEqual(set(PROFILES), {
             "grain_maize", "grain_soybean", "wheat", "sorghum", "chickpea", "sunflower",
+            "rice",
         })
         for profile in PROFILES.values():
             self.assertIsNone(profile["nitrogen"]["default_net_soil_n_change_kg_ha"])
@@ -30,6 +31,7 @@ class CropProfileTests(unittest.TestCase):
             self.assertEqual(body["profile_version"], "fao-reference-v1")
             self.assertEqual({crop["id"] for crop in body["crops"]}, {
                 "grain_maize", "grain_soybean", "wheat", "sorghum", "chickpea", "sunflower",
+                "rice",
             })
 
             maize = client.get("/v1/crops/grain_maize")
@@ -45,6 +47,11 @@ class CropProfileTests(unittest.TestCase):
             chickpea = client.get("/v1/crops/chickpea").json()
             self.assertEqual(chickpea["gaez"]["crop_code"], "chk")
             self.assertIsNotNone(chickpea["nitrogen"]["legume_warning"])
+
+            rice = client.get("/v1/crops/rice").json()
+            self.assertEqual(rice["gaez"]["crop_code"], "rcw")
+            self.assertEqual(rice["water"]["stage_kc"], [1.1, 1.1, 1.2, 1.0])
+            self.assertTrue(any("standing water" in item for item in rice["water"]["limitations"]))
 
     def test_template_requires_a_sourced_nitrogen_assumption(self):
         with TestClient(app) as client:

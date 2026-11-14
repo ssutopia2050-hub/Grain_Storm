@@ -43,10 +43,11 @@ class GaezCalendarTests(unittest.TestCase):
     def test_new_crop_calendar_uses_profile_root_depth(self, resolve, identify):
         resolve.side_effect = lambda crop_id: rasters(crop_id)
         identify.side_effect = lambda raster_id, _lat, _lon: 100 if raster_id == 1 else 120
-        result = fetch_location_crop_calendars(30.34, 76.39, ["wheat", "chickpea"], 2024)
+        result = fetch_location_crop_calendars(30.34, 76.39, ["wheat", "chickpea", "rice"], 2024)
         by_crop = {crop["crop_id"]: crop for crop in result["crops"]}
         self.assertEqual(by_crop["wheat"]["reference_root_depth_m"], 1.0)
         self.assertEqual(by_crop["chickpea"]["reference_root_depth_m"], 0.6)
+        self.assertEqual(by_crop["rice"]["reference_root_depth_m"], 0.5)
 
 
 if __name__ == "__main__":
