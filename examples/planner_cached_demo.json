@@ -1,0 +1,37 @@
+{
+  "title": "Software demo: historical weather with synthetic four-day crops",
+  "field": {
+    "name": "Synthetic demo assumptions, not a real farm recommendation",
+    "area_ha": 2.0,
+    "soil_water_capacity_mm": 80,
+    "initial_soil_water_mm": 45,
+    "initial_mineral_n_kg_ha": 75,
+    "irrigation_enabled": true,
+    "irrigation_trigger_fraction": 0.5
+  },
+  "crop_catalog": {
+    "maize_demo": {
+      "duration_days": 4,
+      "stage_days": [1, 1, 1, 1],
+      "stage_kc": [0.3, 0.8, 1.2, 0.6],
+      "net_soil_n_change_kg_ha": -12
+    },
+    "soybean_demo": {
+      "duration_days": 4,
+      "stage_days": [1, 1, 1, 1],
+      "stage_kc": [0.4, 0.8, 1.15, 0.5],
+      "net_soil_n_change_kg_ha": -3
+    }
+  },
+  "scenarios": [
+    {"name": "Demo maize then soybean", "start_date": "2024-07-19", "crops": ["maize_demo", "soybean_demo"]},
+    {"name": "Demo soybean then maize", "start_date": "2024-07-19", "crops": ["soybean_demo", "maize_demo"]}
+  ],
+  "weather_source": {
+    "provider": "imerg_era5",
+    "latitude": 30.34,
+    "longitude": 76.39,
+    "start_date": "2024-07-19",
+    "end_date": "2024-07-26"
+  }
+}

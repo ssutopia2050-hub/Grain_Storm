@@ -1,0 +1,40 @@
+{
+  "title": "Illustrative crop-sequence comparison",
+  "start_date": "2026-01-01",
+  "field": {
+    "name": "Synthetic demo field",
+    "area_ha": 2.0,
+    "soil_water_capacity_mm": 80,
+    "initial_soil_water_mm": 45,
+    "initial_mineral_n_kg_ha": 75,
+    "irrigation_enabled": true,
+    "irrigation_trigger_fraction": 0.5
+  },
+  "crop_catalog": {
+    "maize_demo": {
+      "duration_days": 4,
+      "water_need_mm": 28,
+      "net_soil_n_change_kg_ha": -12
+    },
+    "soybean_demo": {
+      "duration_days": 4,
+      "water_need_mm": 22,
+      "net_soil_n_change_kg_ha": -3
+    }
+  },
+  "weather": [
+    {"date": "2026-01-01", "rain_mm": 0},
+    {"date": "2026-01-02", "rain_mm": 4},
+    {"date": "2026-01-03", "rain_mm": 0},
+    {"date": "2026-01-04", "rain_mm": 2},
+    {"date": "2026-01-05", "rain_mm": 0},
+    {"date": "2026-01-06", "rain_mm": 0},
+    {"date": "2026-01-07", "rain_mm": 10},
+    {"date": "2026-01-08", "rain_mm": 0}
+  ],
+  "scenarios": [
+    {"name": "Maize then soybean", "crops": ["maize_demo", "soybean_demo"]},
+    {"name": "Soybean then maize", "crops": ["soybean_demo", "maize_demo"]}
+  ],
+  "demo_note": "Synthetic numbers and 4-day crop cycles demonstrate software behavior only. Replace every value with reviewed local data before interpreting a real farm scenario."
+}

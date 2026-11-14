@@ -1,0 +1,53 @@
+{
+  "title": "Software demo: rotation calendar feasibility",
+  "field": {
+    "name": "Synthetic scheduling example",
+    "area_ha": 1,
+    "soil_water_capacity_mm": 100,
+    "initial_soil_water_mm": 50,
+    "initial_mineral_n_kg_ha": 50
+  },
+  "crop_catalog": {
+    "first_demo_crop": {
+      "duration_days": 2,
+      "water_need_mm": 0,
+      "net_soil_n_change_kg_ha": 0,
+      "planting_windows": [
+        {
+          "label": "Synthetic January window",
+          "start_month_day": "01-01",
+          "end_month_day": "01-10"
+        }
+      ]
+    },
+    "second_demo_crop": {
+      "duration_days": 2,
+      "water_need_mm": 0,
+      "net_soil_n_change_kg_ha": 0,
+      "planting_windows": [
+        {
+          "label": "Synthetic February window",
+          "start_month_day": "02-01",
+          "end_month_day": "02-10"
+        }
+      ]
+    }
+  },
+  "weather": [
+    {"date": "2024-01-01", "rain_mm": 0},
+    {"date": "2024-01-02", "rain_mm": 0},
+    {"date": "2024-02-01", "rain_mm": 0},
+    {"date": "2024-02-02", "rain_mm": 0}
+  ],
+  "scenarios": [
+    {
+      "name": "Wait for the next planting window",
+      "start_date": "2024-01-01",
+      "planning_end_date": "2024-02-28",
+      "schedule_mode": "next_planting_window",
+      "crops": ["first_demo_crop", "second_demo_crop"],
+      "gaps_after_crops_days": [3]
+    }
+  ],
+  "demo_note": "Every crop and window in this file is synthetic and demonstrates scheduling behavior only."
+}

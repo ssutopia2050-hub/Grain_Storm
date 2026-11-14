@@ -1,0 +1,7 @@
+{
+  "latitude": 30.34,
+  "longitude": 76.39,
+  "end_date": "2024-01-03",
+  "lookback_days": 3,
+  "sources": ["imerg", "era5", "smap"]
+}

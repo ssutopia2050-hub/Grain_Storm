@@ -10,8 +10,24 @@ requires-python = ">=3.10"
 dependencies = [
     "pandas>=2.2,<4.0",
     "requests>=2.31,<3.0",
-    "matplotlib>=3.9,<4.0"
+    "matplotlib>=3.9,<4.0",
+    "fastapi[standard]>=0.115,<1.0",
+    "earthaccess>=0.13,<1.0",
+    "netCDF4>=1.6,<2.0"
 ]
+
+[project.scripts]
+grainstorm-plan = "grainstorm.planner:main"
+grainstorm-fetch-era5 = "grainstorm.fetch_era5:main"
+grainstorm-appeears = "grainstorm.fetch_appeears:main"
+grainstorm-fetch-gpm-imerg = "grainstorm.fetch_gpm_imerg:main"
+grainstorm-fetch-earthdata = "grainstorm.fetch_earthdata:main"
+grainstorm-process-smap = "grainstorm.process_smap:main"
+grainstorm-process-gpm-imerg = "grainstorm.process_gpm_imerg:main"
+grainstorm-prepare-weather = "grainstorm.prepare_weather:main"
+grainstorm-context = "grainstorm.context:main"
+grainstorm-satellite-worker = "grainstorm.satellite_jobs:main"
+grainstorm-preload = "grainstorm.preload:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

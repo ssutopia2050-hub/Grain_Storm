@@ -1,0 +1,59 @@
+{
+  "title": "Synthetic full decision-support demonstration",
+  "field": {
+    "name": "Replace every value with reviewed local inputs",
+    "area_ha": 2,
+    "soil_water_capacity_mm": 100,
+    "soil_water_capacity_depth_m": 1,
+    "initial_soil_water_mm": 50,
+    "fallow_kc": 0.5,
+    "initial_mineral_n_kg_ha": 20,
+    "initial_available_p_kg_ha": 5,
+    "initial_exchangeable_k_kg_ha": 5,
+    "initial_organic_matter_percent": 2,
+    "initial_soil_ph": 7
+  },
+  "crop_catalog": {
+    "soy_demo": {
+      "duration_days": 1,
+      "water_need_mm": 10,
+      "root_depth_m": 0.5,
+      "planting_windows": [{"label": "Synthetic window", "start_month_day": "01-01", "end_month_day": "01-31"}],
+      "nutrient_budget": {
+        "n": {"biological_fixation": 10, "fertilizer": 5, "residue_release": 2, "crop_uptake_from_soil": 8, "other_losses": 1, "source": "Synthetic demo only"},
+        "p": {"fertilizer": 3, "crop_uptake_from_soil": 1, "source": "Synthetic demo only"},
+        "k": {"fertilizer": 4, "crop_uptake_from_soil": 2, "source": "Synthetic demo only"}
+      },
+      "soil_effects": {"organic_matter_change_percentage_points": 0.1, "ph_change": -0.1, "source": "Synthetic demo only"},
+      "economics": {"expected_yield_t_ha": 2, "price_per_tonne": 100, "variable_cost_per_ha": 50, "currency": "USD", "source": "Synthetic demo only"}
+    },
+    "maize_demo": {
+      "duration_days": 1,
+      "water_need_mm": 10,
+      "root_depth_m": 1,
+      "planting_windows": [{"label": "Synthetic window", "start_month_day": "01-01", "end_month_day": "01-31"}],
+      "nutrient_budget": {
+        "n": {"fertilizer": 5, "residue_release": 2, "crop_uptake_from_soil": 8, "other_losses": 1, "source": "Synthetic demo only"},
+        "p": {"fertilizer": 3, "crop_uptake_from_soil": 1, "source": "Synthetic demo only"},
+        "k": {"fertilizer": 4, "crop_uptake_from_soil": 2, "source": "Synthetic demo only"}
+      },
+      "soil_effects": {"organic_matter_change_percentage_points": 0.1, "ph_change": -0.1, "source": "Synthetic demo only"},
+      "economics": {"expected_yield_t_ha": 3, "price_per_tonne": 100, "variable_cost_per_ha": 50, "currency": "USD", "source": "Synthetic demo only"}
+    }
+  },
+  "rotation_effect_catalog": {
+    "soy_demo->maize_demo": {"pest_disease_break_score": 2, "source": "Synthetic demo only"},
+    "maize_demo->soy_demo": {"pest_disease_break_score": -1, "source": "Synthetic demo only"}
+  },
+  "weather": [
+    {"date": "2024-01-01", "rain_mm": 0, "et0_mm": 2},
+    {"date": "2024-01-02", "rain_mm": 10, "et0_mm": 2},
+    {"date": "2024-01-03", "rain_mm": 0, "et0_mm": 2}
+  ],
+  "scenarios": [
+    {"name": "Soy then maize", "start_date": "2024-01-01", "planning_end_date": "2024-01-31", "crops": ["soy_demo", "maize_demo"], "gaps_after_crops_days": [1]},
+    {"name": "Maize then soy", "start_date": "2024-01-01", "planning_end_date": "2024-01-31", "crops": ["maize_demo", "soy_demo"], "gaps_after_crops_days": [1]}
+  ],
+  "ranking": {"enabled": true, "weights": {"net_margin": 1, "irrigation": 1, "unmet_water": 1, "nutrient_shortfall": 1, "pest_disease": 1}},
+  "demo_note": "All agronomic and financial numbers are synthetic and exist only to demonstrate the complete API shape."
+}

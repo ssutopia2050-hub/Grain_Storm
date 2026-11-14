@@ -19,6 +19,7 @@ env/
 # Generated datasets
 data/raw/*
 data/processed/*
+data/cache/
 
 # Keep folder structure
 !data/raw/.gitkeep
