@@ -17,6 +17,10 @@ WATER_SUPPLY = "Available water content of 200 mm/m (under rain-fed conditions)"
 CROPS = {
     "grain_maize": {"gaez_name": "Maize", "prefix": "maiz200b", "root_depth_m": 0.9},
     "grain_soybean": {"gaez_name": "Soybean", "prefix": "soyb200b", "root_depth_m": 0.6},
+    "wheat": {"gaez_name": "Wheat", "prefix": "whea200b", "root_depth_m": 1.0},
+    "sorghum": {"gaez_name": "Sorghum", "prefix": "sorg200b", "root_depth_m": 1.0},
+    "chickpea": {"gaez_name": "Chickpea", "prefix": "chck200b", "root_depth_m": 0.6},
+    "sunflower": {"gaez_name": "Sunflower", "prefix": "sunf200b", "root_depth_m": 0.8},
 }
 ROOT_SOURCE = "https://www.fao.org/4/y5749e/y5749e0j.htm"
 
@@ -130,7 +134,7 @@ def fetch_location_crop_calendars(latitude: float, longitude: float,
     unknown = [crop_id for crop_id in crop_ids if crop_id not in CROPS]
     if unknown:
         raise ValueError(f"Unsupported crop profile: {unknown[0]}.")
-    with ThreadPoolExecutor(max_workers=min(2, len(crop_ids))) as executor:
+    with ThreadPoolExecutor(max_workers=min(4, len(crop_ids))) as executor:
         crops = list(executor.map(
             lambda crop_id: _crop_calendar(crop_id, latitude, longitude, target_year), crop_ids))
     return {

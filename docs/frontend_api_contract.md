@@ -99,7 +99,8 @@ providers or the background worker are available.
 
 ## 2. Crop profiles and planner templates
 
-`GET /v1/crops` lists the current `grain_maize` and `grain_soybean` profiles.
+`GET /v1/crops` lists `grain_maize`, `grain_soybean`, `wheat`, `sorghum`,
+`chickpea`, and `sunflower`.
 Use `GET /v1/crops/{crop_id}` to populate the crop details and calendar picker.
 The response includes FAO reference stage lengths and Kc values, limitations,
 GAEZ identifiers for future suitability work, and clickable source URLs.
@@ -144,9 +145,10 @@ Call `POST /v1/crop-suitability` after the user chooses a point:
 }
 ```
 
-If `crop_ids` is omitted, both supported crops are queried. The current v1
-endpoint intentionally fixes the comparison assumptions so two results remain
-comparable: GAEZ v4, historical CRUTS32 climate for 1981–2010, rainfed, high
+If `crop_ids` is omitted, maize and soybean are queried as the default pair.
+Any subset of the six supported crops can be supplied. The current endpoint
+fixes the comparison assumptions so results remain comparable: GAEZ v4,
+historical CRUTS32 climate for 1981–2010, rainfed, high
 input, and the all-land suitability index. It samples the official FAO/IIASA
 5-arc-minute raster (roughly 9 km at the equator); it does not download a
 global raster.
@@ -183,8 +185,9 @@ provenance.
 `POST /v1/crop-yield-baseline` uses the same point/crop request and returns
 FAO/IIASA GAEZ Module VI downscaled 2010 rainfed yield in t/ha. It can replace
 the synthetic `expected_yield_t_ha`, but remains an old regional baseline—not a
-current farm forecast. Prices and costs must come from a current market/local
-source.
+current farm forecast. GAEZ Module VI has no standalone chickpea raster, so
+chickpea returns an explicit unavailable result. Prices, costs, and a local
+chickpea yield must come from a current market/local source.
 
 ### Soil context
 
@@ -202,7 +205,7 @@ must come from a recent soil test; never infer them from SMAP or SSURGO.
 ### U.S. crop statistics
 
 `POST /v1/us-crop-statistics` accepts a two-letter `state_alpha`, `year`, and
-optional maize/soybean `crop_ids`. It returns the matching USDA NASS Quick Stats
+optional supported `crop_ids`. It returns matching USDA NASS Quick Stats
 `YIELD` and `PRICE RECEIVED` records without discarding their units, production
 practice, utilization, reference period, or suppression codes. A suppressed
 value such as `(D)` remains in `raw_value` while numeric `value` is `null`.

@@ -159,9 +159,9 @@ uvicorn grainstorm.api:app --reload
 Open `http://127.0.0.1:8000/docs` to inspect and try the API. Current endpoints:
 
 - `GET /health` — service status.
-- `GET /v1/crops` and `GET /v1/crops/{crop_id}` — list and inspect versioned, source-backed maize and soybean reference profiles.
+- `GET /v1/crops` and `GET /v1/crops/{crop_id}` — list and inspect the six versioned, source-backed crop profiles.
 - `POST /v1/crops/{crop_id}/planner-template` — turn a selected reference calendar and sourced nitrogen assumption into a planner crop entry.
-- `POST /v1/crop-suitability` — sample the official FAO/IIASA GAEZ v4 historical suitability index for maize and soybean at a location.
+- `POST /v1/crop-suitability` — sample the official FAO/IIASA GAEZ v4 historical suitability index for supported crops at a location.
 - `POST /v1/crop-calendar` — sample GAEZ crop-cycle start/length and return FAO reference rooting depths for a target year.
 - `POST /v1/crop-yield-baseline` — obtain a historical GAEZ 2010 rainfed yield baseline for the economics input.
 - `POST /v1/context` — retrieve a historical location/date window with shared caching, coverage, units, and provenance.
@@ -451,7 +451,7 @@ python -m unittest discover -s tests -v
 - Shared historical context API and SQLite cache: implemented for ERA5, POWER, and imported IMERG/SMAP.
 - Satellite subset queue, IMERG cloud OPeNDAP adapter, and resumable SMAP AppEEARS adapter: implemented and offline-tested; authenticated live verification requires locally configured Earthdata credentials.
 - USDA SSURGO location-based mapped soil context: implemented for covered U.S. points; current N/P/K still require soil tests and non-U.S. adapters remain pending.
-- USDA NASS state/year maize and soybean yield/price records: implemented; set `NASS_QUICKSTATS_API_KEY` on the backend for U.S. pilots.
+- USDA NASS state/year records for the supported crop catalog: implemented; set `NASS_QUICKSTATS_API_KEY` on the backend for U.S. pilots. Automatic metric economics selection currently applies where matching bushel-based yield and price records exist.
 
 ## Long-term direction
 

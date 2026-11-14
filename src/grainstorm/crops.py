@@ -38,6 +38,11 @@ SOURCES = {
         "url": "https://www.fao.org/4/y5749e/y5749e0j.htm",
         "supports": ["conservative reference rooting depth for water and nutrient balances"],
     },
+    "fao_ecocrop_chickpea": {
+        "title": "FAO EcoCrop: chickpea",
+        "url": "https://ecocrop.apps.fao.org/ecocrop/srv/en/cropView?id=2479",
+        "supports": ["broad reference range for chickpea days from sowing to harvest"],
+    },
 }
 
 
@@ -45,7 +50,7 @@ def _profile(*, crop_id: str, name: str, scientific_name: str, form: str,
              aliases: list[str], gaez_code: str, duration: tuple[int, int],
              calendars: list[tuple[str, int, list[int]]], kc: list[float],
              water_range: tuple[int, int], drought_sensitivity: str,
-             root_depth_m: float) -> dict[str, Any]:
+             root_depth_m: float, extra_source_ids: tuple[str, ...] = ()) -> dict[str, Any]:
     return {
         "id": crop_id,
         "profile_version": PROFILE_VERSION,
@@ -104,12 +109,19 @@ def _profile(*, crop_id: str, name: str, scientific_name: str, form: str,
                 "Net mineral-N change depends on soil tests, yield, fertilizer/manure, fixation, "
                 "residue handling, harvest removal and losses; it is not a universal crop constant."
             ),
+            "legume_warning": (
+                "Biological fixation is not automatically a positive soil-N credit after harvest."
+                if crop_id in {"grain_soybean", "chickpea"} else None
+            ),
             "soybean_warning": (
                 "Biological fixation is not automatically a positive soil-N credit after harvest."
                 if crop_id == "grain_soybean" else None
             ),
         },
-        "source_ids": ["fao_crop_water_needs", "fao56_crop_evapotranspiration", "gaez_v4_model", "fao_rooting_depth"],
+        "source_ids": [
+            "fao_crop_water_needs", "fao56_crop_evapotranspiration",
+            "gaez_v4_model", "fao_rooting_depth", *extra_source_ids,
+        ],
     }
 
 
@@ -135,6 +147,51 @@ PROFILES = {
         ],
         kc=[0.35, 0.75, 1.10, 0.60], water_range=(450, 700),
         drought_sensitivity="low-medium", root_depth_m=0.6,
+    ),
+    "wheat": _profile(
+        crop_id="wheat", name="Wheat", scientific_name="Triticum aestivum L.",
+        form="Dry grain", aliases=["bread wheat", "common wheat"], gaez_code="whe",
+        duration=(120, 150),
+        calendars=[
+            ("fao_reference_120", 120, [15, 25, 50, 30]),
+            ("fao_reference_150", 150, [15, 30, 65, 40]),
+        ],
+        kc=[0.35, 0.75, 1.15, 0.45], water_range=(450, 650),
+        drought_sensitivity="low-medium", root_depth_m=1.0,
+    ),
+    "sorghum": _profile(
+        crop_id="sorghum", name="Grain sorghum", scientific_name="Sorghum bicolor (L.) Moench",
+        form="Dry grain", aliases=["grain sorghum", "milo"], gaez_code="srg",
+        duration=(120, 130),
+        calendars=[
+            ("fao_reference_120", 120, [20, 30, 40, 30]),
+            ("fao_reference_130", 130, [20, 35, 45, 30]),
+        ],
+        kc=[0.35, 0.75, 1.10, 0.65], water_range=(450, 650),
+        drought_sensitivity="low", root_depth_m=1.0,
+    ),
+    "chickpea": _profile(
+        crop_id="chickpea", name="Chickpea", scientific_name="Cicer arietinum L.",
+        form="Dry seed", aliases=["garbanzo bean", "gram", "chana"], gaez_code="chk",
+        duration=(90, 180),
+        calendars=[
+            ("fao_reference_100", 100, [15, 25, 45, 15]),
+            ("fao_reference_150", 150, [20, 30, 60, 40]),
+        ],
+        kc=[0.45, 0.75, 1.10, 0.50], water_range=(350, 500),
+        drought_sensitivity="medium-high", root_depth_m=0.6,
+        extra_source_ids=("fao_ecocrop_chickpea",),
+    ),
+    "sunflower": _profile(
+        crop_id="sunflower", name="Sunflower", scientific_name="Helianthus annuus L.",
+        form="Oilseed", aliases=["oilseed sunflower"], gaez_code="sfl",
+        duration=(125, 130),
+        calendars=[
+            ("fao_reference_125", 125, [20, 35, 45, 25]),
+            ("fao_reference_130", 130, [25, 35, 45, 25]),
+        ],
+        kc=[0.35, 0.75, 1.15, 0.55], water_range=(600, 1000),
+        drought_sensitivity="low-medium", root_depth_m=0.8,
     ),
 }
 

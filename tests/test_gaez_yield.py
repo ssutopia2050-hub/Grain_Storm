@@ -41,6 +41,11 @@ class GaezYieldTests(unittest.TestCase):
         self.assertEqual(response_value.status_code, 200)
         self.assertEqual(response_value.json(), payload)
 
+    def test_chickpea_missing_raster_is_explicit(self):
+        result = fetch_location_yield_baselines(30.34, 76.39, ["chickpea"])
+        self.assertEqual(result["crops"][0]["status"], "unavailable")
+        self.assertIsNone(result["crops"][0]["historical_yield_t_ha"])
+
 
 if __name__ == "__main__":
     unittest.main()

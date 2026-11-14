@@ -22,6 +22,11 @@ from grainstorm.sources.nass import NassError, fetch_us_crop_statistics
 from grainstorm.rotation_advice import build_rotation_advice
 
 
+CropId = Literal[
+    "grain_maize", "grain_soybean", "wheat", "sorghum", "chickpea", "sunflower"
+]
+
+
 app = FastAPI(
     title="Grain Storm API",
     version="0.1.0",
@@ -108,8 +113,8 @@ class CropTemplateRequest(BaseModel):
 class CropSuitabilityRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
-    crop_ids: list[Literal["grain_maize", "grain_soybean"]] = Field(
-        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=2
+    crop_ids: list[CropId] = Field(
+        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=6
     )
 
     @model_validator(mode="after")
@@ -131,8 +136,8 @@ class SoilContextRequest(BaseModel):
 class UsCropStatisticsRequest(BaseModel):
     state_alpha: str = Field(pattern=r"^[A-Za-z]{2}$")
     year: int = Field(ge=1900, le=2200)
-    crop_ids: list[Literal["grain_maize", "grain_soybean"]] = Field(
-        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=2)
+    crop_ids: list[CropId] = Field(
+        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=6)
 
     @model_validator(mode="after")
     def validate_distinct_crops(self):
@@ -149,7 +154,7 @@ class GeoJsonPolygon(BaseModel):
 class RotationAdviceRequest(BaseModel):
     field_polygon: GeoJsonPolygon
     field_name: str = Field(default="Selected field", min_length=1, max_length=200)
-    crop_sequence: list[Literal["grain_maize", "grain_soybean"]] = Field(min_length=1, max_length=2)
+    crop_sequence: list[CropId] = Field(min_length=1, max_length=4)
     preferred_start_date: date
     planning_end_date: date
     schedule_mode: Literal["fixed_gap", "next_planting_window"] = "next_planting_window"

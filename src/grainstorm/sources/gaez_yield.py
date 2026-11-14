@@ -12,7 +12,10 @@ from grainstorm.sources.gaez import GaezError
 
 
 SERVER = "https://gaez-services.fao.org/server/rest/services/res06/ImageServer"
-CROPS = {"grain_maize": "Maize", "grain_soybean": "Soybean"}
+CROPS = {
+    "grain_maize": "Maize", "grain_soybean": "Soybean", "wheat": "Wheat",
+    "sorghum": "Sorghum", "chickpea": None, "sunflower": "Sunflower",
+}
 
 
 def _payload(response: requests.Response, operation: str) -> dict[str, Any]:
@@ -28,7 +31,7 @@ def _payload(response: requests.Response, operation: str) -> dict[str, Any]:
     return payload
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=len(CROPS))
 def _raster(crop_id: str) -> dict[str, Any]:
     try:
         response = requests.get(f"{SERVER}/query", params={
@@ -48,6 +51,14 @@ def _raster(crop_id: str) -> dict[str, Any]:
 
 
 def _sample(crop_id: str, latitude: float, longitude: float) -> dict[str, Any]:
+    if CROPS[crop_id] is None:
+        return {
+            "crop_id": crop_id,
+            "status": "unavailable",
+            "historical_yield_t_ha": None,
+            "economics_yield_input": None,
+            "reason": "GAEZ v4 Module VI has no standalone 2010 rainfed chickpea yield raster.",
+        }
     raster = _raster(crop_id)
     geometry = {"x": longitude, "y": latitude, "spatialReference": {"wkid": 4326}}
     rule = {"mosaicMethod": "esriMosaicLockRaster", "lockRasterIds": [raster["OBJECTID"]]}
@@ -84,7 +95,7 @@ def fetch_location_yield_baselines(latitude: float, longitude: float,
     unknown = [crop_id for crop_id in crop_ids if crop_id not in CROPS]
     if unknown:
         raise ValueError(f"Unsupported crop profile: {unknown[0]}.")
-    with ThreadPoolExecutor(max_workers=min(2, len(crop_ids))) as executor:
+    with ThreadPoolExecutor(max_workers=min(4, len(crop_ids))) as executor:
         crops = list(executor.map(lambda crop_id: _sample(crop_id, latitude, longitude), crop_ids))
     return {
         "requested_point": {"latitude": latitude, "longitude": longitude},
@@ -93,6 +104,7 @@ def fetch_location_yield_baselines(latitude: float, longitude: float,
         "crops": crops,
         "limitations": [
             "This is a downscaled 2010 historical grid-cell baseline, not a current farm yield forecast.",
+            "Chickpea has no standalone raster in this product and is returned as unavailable.",
             "Use local recent yield records when available; keep price and cost inputs separate and current.",
         ],
     }

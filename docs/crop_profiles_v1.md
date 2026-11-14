@@ -1,8 +1,10 @@
 # Grain Storm v1 — Starter Crop Profiles
 
-## Chosen crop pair
+## Supported starter catalog
 
-The first crop pair is **grain maize** and **grain soybean**. These mean maize harvested for dry grain (not sweet corn) and soybean harvested for dry seed (not vegetable/green soybean).
+The starter catalog contains **grain maize, grain soybean, wheat, grain sorghum,
+chickpea, and sunflower**. Maize, soybean and sorghum refer to dry grain/seed
+rather than sweet corn, vegetable soybean, or forage sorghum.
 
 The first model scope is software support for comparing these crops in a sequence on the same field across growing seasons. It is not a claim that both crops suit every location. A location should only be evaluated when both crops are locally viable and the required crop calendar and field inputs are available. Local crop variety and planting/harvest calendars must override generic baselines.
 
@@ -14,6 +16,10 @@ FAO crop-water guidance divides annual crops into initial, crop-development, mid
 |---|---:|---:|---:|---:|---:|
 | Grain maize | 125–180 days | 0.40 | 0.80 | 1.15 | 0.70 |
 | Soybean | 135–150 days | 0.35 | 0.75 | 1.10 | 0.60 |
+| Wheat | 120–150 days | 0.35 | 0.75 | 1.15 | 0.45 |
+| Sorghum | 120–130 days | 0.35 | 0.75 | 1.10 | 0.65 |
+| Chickpea | 90–180 days | 0.45 | 0.75 | 1.10 | 0.50 |
+| Sunflower | 125–130 days | 0.35 | 0.75 | 1.15 | 0.55 |
 
 These are **reference values, not universal crop constants**. The FAO guide says growing period depends on variety, climate, and planting date, and advises using local data when available. Crop coefficients also need adjustment for climate and wetting practices. The reference method estimates crop evapotranspiration from reference evapotranspiration and a crop-stage coefficient (`ETc = ETo × Kc`).
 
@@ -43,9 +49,10 @@ frontend to copy crop numbers:
 - `POST /v1/crops/{crop_id}/planner-template` converts one chosen calendar to
   the exact `crop_catalog` shape used by `POST /v1/plans`.
 
-The two supported profile IDs are `grain_maize` and `grain_soybean`. The
-profile version is `fao-reference-v1`. Maize includes FAO 125-day and 180-day
-reference calendars; soybean includes 135-day and 150-day references.
+The supported IDs are `grain_maize`, `grain_soybean`, `wheat`, `sorghum`,
+`chickpea`, and `sunflower`. The profile version remains `fao-reference-v1`.
+Each crop exposes two reference calendars, while location-specific GAEZ cycle
+data and locally confirmed varieties can override them.
 
 The template endpoint intentionally returns `ready_for_planner: false` until a
 signed `net_soil_n_change_kg_ha` and its `nitrogen_source` are supplied. This
@@ -62,7 +69,7 @@ screening context—not a field soil test, yield forecast, or crop recommendatio
 
 ## Nutrient values: keep local and measured
 
-Do **not** assign one fixed nitrogen requirement or soybean nitrogen credit to either crop. Nutrient balance depends on soil tests, expected yield, variety, inoculation and fixation, fertilizer/manure, residue handling, harvest removal, and weather-related losses. The first real nutrient-budget implementation should either:
+Do **not** assign one fixed nitrogen requirement or automatic legume nitrogen credit to any crop. Nutrient balance depends on soil tests, expected yield, variety, inoculation and fixation, fertilizer/manure, residue handling, harvest removal, and weather-related losses. The first real nutrient-budget implementation should either:
 
 - use a reviewed, location-specific recommendation and record its source and assumptions; or
 - show nutrient balance as unknown until the required soil and management inputs are available.

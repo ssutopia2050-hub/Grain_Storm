@@ -22,7 +22,13 @@ export interface Point {
   longitude: number;
 }
 
-export type CropProfileId = "grain_maize" | "grain_soybean";
+export type CropProfileId =
+  | "grain_maize"
+  | "grain_soybean"
+  | "wheat"
+  | "sorghum"
+  | "chickpea"
+  | "sunflower";
 
 export interface CropProfileSummary {
   id: CropProfileId;
@@ -61,7 +67,7 @@ export interface CropProfile {
   aliases: string[];
   scope: string;
   gaez: {
-    crop_code: "mze" | "soy";
+    crop_code: "mze" | "soy" | "whe" | "srg" | "chk" | "sfl";
     location_suitability_status: "not_evaluated";
     note: string;
   };
@@ -93,6 +99,7 @@ export interface CropProfile {
     required_planner_field: "net_soil_n_change_kg_ha";
     status: "local_input_required";
     reason: string;
+    legume_warning: string | null;
     soybean_warning: string | null;
   };
   source_ids: string[];
@@ -125,7 +132,7 @@ export interface CropSuitabilityRequest extends Point {
 export interface CropSuitabilityResult {
   crop_id: CropProfileId;
   gaez_crop: string;
-  gaez_crop_code: "mze" | "soy";
+  gaez_crop_code: "mze" | "soy" | "whe" | "srg" | "chk" | "sfl";
   status: "complete";
   suitability_index_raw: number;
   suitability_index_percent: number;
@@ -282,12 +289,21 @@ export interface UsCropStatisticsResponse {
 export interface CropYieldBaselineResponse {
   requested_point: Point;
   dataset: Record<string, unknown>;
-  crops: Array<{
-    crop_id: CropProfileId;
-    historical_yield_t_ha: number;
-    economics_yield_input: {expected_yield_t_ha: number};
-    raster: Record<string, unknown>;
-  }>;
+  crops: Array<
+    | {
+        crop_id: CropProfileId;
+        historical_yield_t_ha: number;
+        economics_yield_input: {expected_yield_t_ha: number};
+        raster: Record<string, unknown>;
+      }
+    | {
+        crop_id: "chickpea";
+        status: "unavailable";
+        historical_yield_t_ha: null;
+        economics_yield_input: null;
+        reason: string;
+      }
+  >;
   limitations: string[];
 }
 

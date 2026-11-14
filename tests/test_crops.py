@@ -11,7 +11,9 @@ from grainstorm.planner import simulate_scenarios
 
 class CropProfileTests(unittest.TestCase):
     def test_profiles_are_consistent_and_have_no_fake_nitrogen_default(self):
-        self.assertEqual(set(PROFILES), {"grain_maize", "grain_soybean"})
+        self.assertEqual(set(PROFILES), {
+            "grain_maize", "grain_soybean", "wheat", "sorghum", "chickpea", "sunflower",
+        })
         for profile in PROFILES.values():
             self.assertIsNone(profile["nitrogen"]["default_net_soil_n_change_kg_ha"])
             self.assertTrue(set(profile["source_ids"]).issubset(SOURCES))
@@ -26,7 +28,9 @@ class CropProfileTests(unittest.TestCase):
             self.assertEqual(listing.status_code, 200)
             body = listing.json()
             self.assertEqual(body["profile_version"], "fao-reference-v1")
-            self.assertEqual({crop["id"] for crop in body["crops"]}, {"grain_maize", "grain_soybean"})
+            self.assertEqual({crop["id"] for crop in body["crops"]}, {
+                "grain_maize", "grain_soybean", "wheat", "sorghum", "chickpea", "sunflower",
+            })
 
             maize = client.get("/v1/crops/grain_maize")
             self.assertEqual(maize.status_code, 200)
@@ -37,6 +41,10 @@ class CropProfileTests(unittest.TestCase):
                              [20, 35, 40, 30])
             self.assertIn("fao_crop_water_needs", profile["sources"])
             self.assertEqual(client.get("/v1/crops/unknown").status_code, 404)
+
+            chickpea = client.get("/v1/crops/chickpea").json()
+            self.assertEqual(chickpea["gaez"]["crop_code"], "chk")
+            self.assertIsNotNone(chickpea["nitrogen"]["legume_warning"])
 
     def test_template_requires_a_sourced_nitrogen_assumption(self):
         with TestClient(app) as client:

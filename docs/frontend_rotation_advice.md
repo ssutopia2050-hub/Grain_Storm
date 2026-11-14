@@ -139,7 +139,10 @@ API but is not downloaded or treated as a blocker for rotation advice.
 - GAEZ planting dates are coarse anchors; local planting windows remain a
   farmer/agronomist input.
 - The first and last polygon coordinates must be identical.
-- Only `grain_maize` and `grain_soybean` are supported in v1.
+- Supported crop IDs are `grain_maize`, `grain_soybean`, `wheat`, `sorghum`,
+  `chickpea`, and `sunflower`. A rotation request can contain up to four crops.
+- GAEZ has no standalone 2010 chickpea actual-yield raster, so that specific
+  baseline is returned as unavailable; the frontend must request a local yield.
 
 The lower-level endpoints remain useful for diagnostics and research, but they
 are not part of the normal frontend orchestration.

@@ -21,6 +21,10 @@ BASELINE = {
 CROPS = {
     "grain_maize": {"gaez_name": "Maize", "gaez_code": "mze", "raster_name": "sxHr_mze"},
     "grain_soybean": {"gaez_name": "Soybean", "gaez_code": "soy", "raster_name": "sxHr_soy"},
+    "wheat": {"gaez_name": "Wheat", "gaez_code": "whe", "raster_name": "sxHr_whe"},
+    "sorghum": {"gaez_name": "Sorghum", "gaez_code": "srg", "raster_name": "sxHr_srg"},
+    "chickpea": {"gaez_name": "Chickpea", "gaez_code": "chk", "raster_name": "sxHr_chk"},
+    "sunflower": {"gaez_name": "Sunflower", "gaez_code": "sfl", "raster_name": "sxHr_sfl"},
 }
 
 
@@ -165,7 +169,7 @@ def fetch_location_suitability(latitude: float, longitude: float,
     if unknown:
         raise ValueError(f"Unsupported crop profile: {unknown[0]}.")
 
-    with ThreadPoolExecutor(max_workers=min(2, len(crop_ids))) as executor:
+    with ThreadPoolExecutor(max_workers=min(4, len(crop_ids))) as executor:
         crops = list(executor.map(lambda crop_id: _sample_crop(crop_id, latitude, longitude), crop_ids))
     return {
         "requested_point": {"latitude": latitude, "longitude": longitude},

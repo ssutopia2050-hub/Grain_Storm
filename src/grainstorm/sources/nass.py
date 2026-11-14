@@ -10,8 +10,14 @@ import requests
 
 SERVICE = "https://quickstats.nass.usda.gov/api/api_GET/"
 DOCUMENTATION = "https://quickstats.nass.usda.gov/api"
-CROPS = {"grain_maize": "CORN", "grain_soybean": "SOYBEANS"}
-BUSHEL_KG = {"grain_maize": 25.40117272, "grain_soybean": 27.2155422}
+CROPS = {
+    "grain_maize": "CORN", "grain_soybean": "SOYBEANS", "wheat": "WHEAT",
+    "sorghum": "SORGHUM", "chickpea": "CHICKPEAS", "sunflower": "SUNFLOWER",
+}
+BUSHEL_KG = {
+    "grain_maize": 25.40117272, "grain_soybean": 27.2155422,
+    "wheat": 27.2155422, "sorghum": 25.40117272,
+}
 ACRES_PER_HECTARE = 2.4710538147
 CONVERSION_SOURCE = "https://www.ams.usda.gov/sites/default/files/media/Book2.pdf"
 
