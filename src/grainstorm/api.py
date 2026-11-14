@@ -43,9 +43,17 @@ def _run_embedded_satellite_worker() -> None:
         from grainstorm.satellite_jobs import SatelliteJobs
 
         queue = SatelliteJobs(ContextService())
-        LOGGER.info("Embedded satellite worker is watching %s.", queue.context.db_path)
+        try:
+            concurrency = int(os.environ.get("GRAINSTORM_WORKER_CONCURRENCY", "4"))
+        except ValueError:
+            concurrency = 4
+        concurrency = max(1, min(8, concurrency))
+        LOGGER.info(
+            "Embedded satellite worker is watching %s with concurrency=%d.",
+            queue.context.db_path, concurrency,
+        )
         while True:
-            if not queue.run_batch(concurrency=2):
+            if not queue.run_batch(concurrency=concurrency):
                 time.sleep(3)
     except Exception:
         LOGGER.exception("Embedded satellite worker stopped unexpectedly.")

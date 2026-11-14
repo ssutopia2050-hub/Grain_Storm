@@ -53,7 +53,8 @@ persistent disk is attached, it logs a warning and uses
 `/tmp/grainstorm/environment.sqlite3`. That cache is intentionally ephemeral
 and resets when Render replaces or restarts the instance. Set
 `GRAINSTORM_EMBEDDED_WORKER=false` only when deploying a separate worker that
-shares a durable database.
+shares a durable database. The embedded worker processes four jobs at a time by
+default; `GRAINSTORM_WORKER_CONCURRENCY` can override this from 1 through 8.
 
 The worker prints a ready message and then waits. It only prints another line
 when a context request queues work or a job changes state. A quiet terminal
