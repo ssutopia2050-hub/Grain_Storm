@@ -15,7 +15,32 @@ class IntelligenceConfigurationError(RuntimeError):
 
 
 class IntelligenceGenerationError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, code: str = "generation_failed",
+                 retryable: bool = False, status_code: int = 502):
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+        self.status_code = status_code
+
+
+def _safe_generation_error(exc: Exception) -> IntelligenceGenerationError:
+    """Classify public error codes without returning upstream messages or headers."""
+    body = getattr(exc, "body", None)
+    error = body.get("error", body) if isinstance(body, dict) else {}
+    error = error if isinstance(error, dict) else {}
+    code = getattr(exc, "code", None) or error.get("code")
+    kind = error.get("type")
+    if code == "insufficient_quota" or kind == "insufficient_quota":
+        return IntelligenceGenerationError(
+            "OpenAI API quota is unavailable. Check API credits and project billing limits before retrying.",
+            code="insufficient_quota", status_code=503,
+        )
+    if getattr(exc, "status_code", None) == 429:
+        return IntelligenceGenerationError(
+            "OpenAI temporarily limited requests or tokens. Wait briefly and retry.",
+            code="rate_limit_exceeded", retryable=True, status_code=429,
+        )
+    return IntelligenceGenerationError("OpenAI decision generation failed. Please retry later.")
 
 
 @dataclass(frozen=True)
@@ -100,9 +125,7 @@ class OpenAIDecisionEngine:
                 max_output_tokens=8000,
             ), timeout=self.timeout_seconds)
         except Exception as exc:
-            raise IntelligenceGenerationError(
-                f"OpenAI decision generation failed: {type(exc).__name__}."
-            ) from exc
+            raise _safe_generation_error(exc) from exc
         finally:
             if self._client is client and hasattr(client, "close"):
                 await client.close()

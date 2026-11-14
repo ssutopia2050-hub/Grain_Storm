@@ -145,6 +145,11 @@ rate limits and spending controls before exposing this paid endpoint.
 - 422: incomplete/malformed/oversized analysis; no model call is made.
 - 503: missing key, unavailable SDK or invalid backend AI configuration.
 - 502: API/network/rate-limit failure, timeout, refusal, incomplete generation or invalid structured result.
+- Upstream quota exhaustion returns 503 with `detail.code: insufficient_quota` and
+  `retryable: false`; check API credits and project billing limits.
+- Temporary upstream throttling returns 429 with `detail.code: rate_limit_exceeded`
+  and `retryable: true`. Generation errors return a safe `{code, message, retryable}`
+  object under `detail`; raw upstream messages are never exposed.
 - 200: report returned, including rejected/revision-required proposals. Inspect the audit.
 
 Errors do not expose keys or upstream response bodies and never substitute invented advice.

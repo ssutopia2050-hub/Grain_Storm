@@ -380,7 +380,9 @@ async def create_intelligence_report(
     except IntelligenceConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except IntelligenceGenerationError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail={
+            "code": exc.code, "message": str(exc), "retryable": exc.retryable,
+        }) from exc
 
 
 @app.post("/v1/context")

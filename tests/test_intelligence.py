@@ -240,6 +240,22 @@ class ValidatorTests(unittest.TestCase):
 
 
 class OpenAIEngineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_quota_and_transient_rate_limit_have_distinct_safe_codes(self):
+        from openai import RateLimitError
+        for code, expected_status, retryable in (
+            ("insufficient_quota", 503, False), ("rate_limit_exceeded", 429, True),
+        ):
+            error = RateLimitError("secret upstream detail", response=httpx.Response(
+                429, request=httpx.Request("POST", "https://api.openai.com/v1/responses")),
+                body={"code": code, "message": "secret upstream detail"})
+            client = SimpleNamespace(responses=SimpleNamespace(parse=AsyncMock(side_effect=error)))
+            with self.assertRaises(IntelligenceGenerationError) as caught:
+                await OpenAIDecisionEngine(client=client).generate({})
+            self.assertEqual(caught.exception.code, code)
+            self.assertEqual(caught.exception.status_code, expected_status)
+            self.assertEqual(caught.exception.retryable, retryable)
+            self.assertNotIn("secret", str(caught.exception))
+
     async def test_rate_limit_does_not_leak_upstream_body(self):
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key="test-key", max_retries=0,
@@ -296,6 +312,16 @@ class OpenAIEngineTests(unittest.IsolatedAsyncioTestCase):
 
 
 class OrchestratorAndApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_endpoint_preserves_safe_error_classification(self):
+        orchestrator = SimpleNamespace(analyze=AsyncMock(side_effect=IntelligenceGenerationError(
+            "Check API credits.", code="insufficient_quota", status_code=503)))
+        app.dependency_overrides[get_intelligence_orchestrator] = lambda: orchestrator
+        self.addCleanup(app.dependency_overrides.clear)
+        response = TestClient(app).post("/api/v1/intelligence", json={"analysis": rice_analysis()})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "insufficient_quota")
+        self.assertFalse(response.json()["detail"]["retryable"])
+
     async def test_invalid_analysis_and_unconfigured_ai_http_errors(self):
         client = TestClient(app)
         self.assertEqual(client.post("/api/v1/intelligence", json={"analysis": {}}).status_code, 422)
