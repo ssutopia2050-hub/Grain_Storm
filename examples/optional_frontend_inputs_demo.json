@@ -1,0 +1,70 @@
+{
+  "title": "Optional frontend inputs demonstration",
+  "field": {
+    "name": "Replace with the farmer field",
+    "area_ha": 1,
+    "soil_water_capacity_mm": 100,
+    "soil_water_capacity_depth_m": 1,
+    "initial_soil_water_mm": 20,
+    "fallow_kc": 0.3,
+    "soil_test": {
+      "sample_date": "2024-01-01",
+      "depth_cm": 30,
+      "source": "Example laboratory report — replace",
+      "mineral_n_kg_ha": 100,
+      "available_p_kg_ha": 40,
+      "exchangeable_k_kg_ha": 80,
+      "organic_matter_percent": 2,
+      "ph": 7
+    },
+    "management": {
+      "source": "Example farmer record — replace",
+      "previous_crop": "wheat",
+      "residue_retained_fraction": 0.5
+    },
+    "irrigation": {
+      "enabled": true,
+      "trigger_fraction": 0.5,
+      "application_efficiency": 0.75,
+      "max_withdrawal_mm": 100,
+      "variable_cost_per_m3": 0.1,
+      "currency": "USD",
+      "source": "Example irrigation record — replace"
+    }
+  },
+  "crop_catalog": {
+    "maize": {
+      "variety": {"name": "Example maize", "maturity_days": 2, "source": "Example seed label — replace"},
+      "water_need_mm": 20,
+      "root_depth_m": 1,
+      "planting_windows": [{"label": "Example local window", "start_month_day": "01-01", "end_month_day": "01-10"}],
+      "agronomy": {
+        "nutrient_removal_kg_per_tonne": {"n": 10, "p": 2, "k": 3},
+        "fertilizer_applied_kg_ha": {"n": 10, "p": 5, "k": 5},
+        "fertilizer_recovery_fraction": {"n": 0.5, "p": 0.4, "k": 0.6},
+        "residue_release_kg_ha": {"n": 2, "p": 1, "k": 2},
+        "other_losses_kg_ha": {"n": 1, "p": 0, "k": 0},
+        "source": "Example coefficients — replace with reviewed values"
+      },
+      "economics": {
+        "expected_yield_t_ha": 2,
+        "price_per_tonne": 1000,
+        "variable_cost_per_ha": 100,
+        "currency": "USD",
+        "source": "Example market record — replace"
+      }
+    }
+  },
+  "weather": [
+    {"date": "2024-01-01", "rain_mm": 0, "et0_mm": 1},
+    {"date": "2024-01-02", "rain_mm": 0, "et0_mm": 1}
+  ],
+  "scenarios": [
+    {
+      "name": "One-crop feature check",
+      "start_date": "2024-01-01",
+      "planning_end_date": "2024-01-10",
+      "crops": ["maize"]
+    }
+  ]
+}
