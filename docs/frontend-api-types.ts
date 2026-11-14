@@ -198,6 +198,87 @@ export interface CropCalendarResponse {
   limitations: string[];
 }
 
+export interface SoilContextResponse {
+  requested_point: Point;
+  status: "complete" | "unavailable";
+  dataset: {
+    provider: "USDA NRCS";
+    product: string;
+    service: string;
+    source_page: string;
+    geographic_coverage: string;
+  };
+  soil: null | {
+    map_unit: {key: string; symbol: string; name: string};
+    dominant_component: {
+      key: string;
+      name: string;
+      map_unit_percent: number | null;
+      drainage_class: string | null;
+      hydrologic_group: string | null;
+    };
+    topsoil_0_30cm: {
+      depth_cm: number;
+      sand_percent: number | null;
+      silt_percent: number | null;
+      clay_percent: number | null;
+      organic_matter_percent: number | null;
+      ph_h2o: number | null;
+      available_water_capacity_mm: number | null;
+      covered_depth_cm: number;
+    };
+    horizons: Array<Record<string, string | number | null>>;
+  };
+  unavailable_properties: string[];
+  limitations?: string[];
+  note?: string;
+}
+
+export interface UsCropStatisticsRequest {
+  state_alpha: string;
+  year: number;
+  crop_ids?: CropProfileId[];
+}
+
+export interface UsCropStatisticsResponse {
+  request: UsCropStatisticsRequest & {crop_ids: CropProfileId[]};
+  status: "complete" | "auth_required";
+  dataset: Record<string, string>;
+  records: Array<{
+    crop_id: CropProfileId;
+    statistic: "yield" | "price_received";
+    value: number | null;
+    raw_value: string;
+    unit: string | null;
+    short_description: string | null;
+    production_practice: string | null;
+    utilization: string | null;
+    reference_period: string | null;
+    state: string | null;
+    year: number;
+    load_time: string | null;
+  }>;
+  selected_baselines?: Array<{
+    crop_id: CropProfileId;
+    selection_status: "complete";
+    yield_t_ha: number;
+    price_per_tonne: number;
+    currency: "USD";
+    gross_revenue_per_ha: number;
+    unit_conversion: {bushel_kg: number; acres_per_hectare: number; source: string};
+    planner_economics_partial: {
+      expected_yield_t_ha: number;
+      price_per_tonne: number;
+      currency: "USD";
+      source: string;
+    };
+    missing_for_planner: ["variable_cost_per_ha"];
+  }>;
+  configuration?: string;
+  note?: string;
+  attribution?: string;
+}
+
 export interface CropYieldBaselineResponse {
   requested_point: Point;
   dataset: Record<string, unknown>;
@@ -302,7 +383,7 @@ export interface FieldInput {
   area_ha: number;
   soil_water_capacity_mm: number;
   initial_soil_water_mm: number;
-  initial_mineral_n_kg_ha: number;
+  initial_mineral_n_kg_ha?: number; // required here or through soil_test
   initial_available_p_kg_ha?: number;
   initial_exchangeable_k_kg_ha?: number;
   initial_organic_matter_percent?: number;
@@ -311,10 +392,36 @@ export interface FieldInput {
   fallow_kc?: number;
   irrigation_enabled?: boolean;
   irrigation_trigger_fraction?: number;
+  soil_test?: {
+    sample_date: ISODate;
+    depth_cm: number;
+    source: string;
+    mineral_n_kg_ha: number;
+    available_p_kg_ha?: number;
+    exchangeable_k_kg_ha?: number;
+    organic_matter_percent?: number;
+    ph?: number;
+  };
+  management?: {
+    source: string;
+    previous_crop?: string;
+    residue_retained_fraction?: number;
+    tillage?: string;
+    notes?: string;
+  };
+  irrigation?: {
+    enabled: boolean;
+    trigger_fraction?: number;
+    application_efficiency?: number;
+    max_withdrawal_mm?: number;
+    variable_cost_per_m3?: number;
+    currency?: string;
+    source: string;
+  };
 }
 
 export interface CropInput {
-  duration_days: number;
+  duration_days?: number; // required here or as variety.maturity_days
   net_soil_n_change_kg_ha?: number;
   stage_kc?: [number, number, number, number];
   stage_days?: [number, number, number, number];
@@ -331,6 +438,17 @@ export interface CropInput {
     end_month_day: string; // MM-DD; may wrap across New Year
   }>;
   root_depth_m?: number;
+  variety?: {name: string; maturity_days: number; source: string};
+  agronomy?: {
+    nutrient_removal_kg_per_tonne: Partial<Record<"n" | "p" | "k", number>>;
+    fertilizer_applied_kg_ha?: Partial<Record<"n" | "p" | "k", number>>;
+    fertilizer_recovery_fraction?: Partial<Record<"n" | "p" | "k", number>>;
+    residue_release_kg_ha?: Partial<Record<"n" | "p" | "k", number>>;
+    other_losses_kg_ha?: Partial<Record<"n" | "p" | "k", number>>;
+    biological_fixation_n_kg_ha?: number;
+    source: string;
+    note?: string;
+  };
   nutrient_budget?: Partial<Record<"n" | "p" | "k", {
     fertilizer?: number;
     residue_release?: number;
@@ -349,7 +467,19 @@ export interface CropInput {
   economics?: {
     expected_yield_t_ha: number;
     price_per_tonne: number;
-    variable_cost_per_ha: number;
+    variable_cost_per_ha?: number; // legacy lump sum; use cost_items for detail
+    marketable_yield_fraction?: number;
+    additional_income_per_ha?: number;
+    cost_completeness_confirmed?: boolean; // required true when using cost_items
+    cost_items?: Array<{
+      name: string;
+      category?: "seed" | "fertilizer" | "labour" | "machinery" | "crop_protection" |
+        "land_preparation" | "harvest" | "transport" | "insurance" | "other" | string;
+      amount_per_ha?: number; // exactly one amount field
+      amount_for_field?: number;
+      source: string;
+      note?: string;
+    }>;
     currency: string;
     source: string;
   };
@@ -450,6 +580,9 @@ export interface CropResult {
 export interface IrrigationEvent {
   date: ISODate;
   amount_mm: number;
+  withdrawal_mm: number;
+  effective_amount_mm: number;
+  application_efficiency: number;
   amount_m3_for_field: number;
   crop: string;
 }
@@ -471,7 +604,10 @@ export interface ScenarioResult {
   pest_disease_rotation_score: number | null;
   total_rain_mm: number;
   total_irrigation_mm: number;
+  total_effective_irrigation_mm: number;
   total_irrigation_m3_for_field: number;
+  irrigation_limit_mm: number | null;
+  irrigation_cost_for_field: number;
   total_unmet_water_mm: number;
   estimated_final_mineral_n_kg_ha: number;
   estimated_final_mineral_n_kg_for_field: number;
@@ -483,6 +619,19 @@ export interface ScenarioResult {
   estimated_total_margin_for_field: number | null;
   economics_currency: string | null;
   economics_status: "complete" | "not_fully_evaluated";
+  economics_summary: {
+    status: "complete" | "not_fully_evaluated";
+    field_area_ha: number;
+    gross_crop_revenue_for_field: number;
+    additional_income_for_field: number;
+    crop_costs_for_field: number;
+    irrigation_cost_for_field: number;
+    total_cost_for_field: number;
+    net_margin_for_field: number | null;
+    net_margin_per_ha: number | null;
+    return_on_cost_percent: number | null;
+    currency: string | null;
+  };
   irrigation_events: IrrigationEvent[];
 }
 
@@ -510,6 +659,13 @@ export interface PlanResponse {
         warning?: string;
       };
     };
+    input_assessment: {
+      status: "complete" | "partial";
+      provided_features_are_calculated: true;
+      missing_inputs: string[];
+      domains: Record<string, unknown>;
+      note: string;
+    };
     assumptions_and_limits: string[];
   };
   weather_metadata: Record<string, unknown> | null;
@@ -527,6 +683,46 @@ export interface PlanPendingResponse {
       jobs: JobSummary[];
     }>>;
   };
+}
+
+export interface RotationAdviceRequest {
+  field_polygon: {type: "Polygon"; coordinates: number[][][]}; // [longitude, latitude], closed ring
+  field_name?: string;
+  crop_sequence: CropProfileId[];
+  preferred_start_date: ISODate;
+  planning_end_date: ISODate;
+  schedule_mode?: "fixed_gap" | "next_planting_window";
+  gaps_after_crops_days?: number[];
+  compare_all_orders?: boolean;
+  field_inputs?: Partial<FieldInput>;
+  soil_test?: NonNullable<FieldInput["soil_test"]>;
+  management?: NonNullable<FieldInput["management"]>;
+  irrigation?: NonNullable<FieldInput["irrigation"]>;
+  crop_inputs?: Partial<Record<CropProfileId, Partial<CropInput>>>;
+  rotation_effect_catalog?: PlanRequest["rotation_effect_catalog"];
+  ranking?: PlanRequest["ranking"];
+}
+
+export interface RotationAdviceResponse {
+  status: "processing" | "needs_input" | "complete" | "preliminary";
+  field: {
+    polygon: RotationAdviceRequest["field_polygon"];
+    centroid: Point;
+    area_m2: number;
+    area_ha: number;
+    area_acres: number;
+    perimeter_m: number;
+    method: string;
+  };
+  request: Record<string, unknown>;
+  crop_analysis: Record<string, unknown>;
+  soil_context: SoilContextResponse;
+  environmental_context: ContextResponse | Record<string, unknown> | null;
+  missing_inputs: Array<{path: string; reason: string}>;
+  jobs?: JobSummary[];
+  calculation: {report: PlanResponse["report"]; weather_metadata: Record<string, unknown> | null} | null;
+  advice: Record<string, unknown> | null;
+  limitations: string[];
 }
 
 // @ts-ignore

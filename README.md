@@ -6,6 +6,7 @@ A generalized agricultural monitoring and environmental data analysis framework 
 See the [project TODO](docs/TODO.md) for current priorities and follow-up work.
 Frontend developers should start with the [v1 API contract](docs/frontend_api_contract.md)
 and its [copyable TypeScript definitions](docs/frontend-api-types.ts).
+The normal product flow is now consolidated in the [single rotation-advice endpoint](docs/frontend_rotation_advice.md).
 The current challenge alignment and resource shortlist are in
 [challenge resource triage](docs/challenge_resources_triage.md).
 The v1 crop pair and reference assumptions are documented in
@@ -97,6 +98,13 @@ Save the report as JSON:
 
 ```bash
 python -m grainstorm.planner examples/planner_demo.json --output data/processed/planner_report.json
+```
+
+To exercise the optional soil-test, management, variety, derived nutrient,
+irrigation-efficiency/limit/cost and missing-input features, run:
+
+```bash
+python -m grainstorm.planner examples/optional_frontend_inputs_demo.json
 ```
 
 Replace the example rainfall, field properties, crop durations, water needs,
@@ -442,7 +450,8 @@ python -m unittest discover -s tests -v
 - SMAP daily normalization and cached environmental context: implemented; conversion to planner soil-water inputs is not assumed.
 - Shared historical context API and SQLite cache: implemented for ERA5, POWER, and imported IMERG/SMAP.
 - Satellite subset queue, IMERG cloud OPeNDAP adapter, and resumable SMAP AppEEARS adapter: implemented and offline-tested; authenticated live verification requires locally configured Earthdata credentials.
-- Soil-property adapters and additional vegetation/terrain products: pending.
+- USDA SSURGO location-based mapped soil context: implemented for covered U.S. points; current N/P/K still require soil tests and non-U.S. adapters remain pending.
+- USDA NASS state/year maize and soybean yield/price records: implemented; set `NASS_QUICKSTATS_API_KEY` on the backend for U.S. pilots.
 
 ## Long-term direction
 

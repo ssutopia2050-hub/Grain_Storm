@@ -6,6 +6,7 @@ model. The live schema is always available at `/openapi.json`, with interactive
 documentation at `/docs`.
 
 Companion TypeScript definitions: [frontend-api-types.ts](frontend-api-types.ts).
+For the product UI, use the simplified [single rotation-advice endpoint](frontend_rotation_advice.md).
 Working request examples: [context_request.json](../examples/context_request.json)
 and [planner_cached_demo.json](../examples/planner_cached_demo.json). The
 synthetic [rotation_calendar_demo.json](../examples/rotation_calendar_demo.json)
@@ -42,6 +43,8 @@ POST /v1/context
 GET /v1/crops -> choose crop and reference calendar
 POST /v1/crop-suitability -> screen chosen crops for the location
 POST /v1/crop-calendar -> load location-aware cycle anchors and root depths
+POST /v1/soil-context -> load mapped soil context when the point has SSURGO coverage
+POST /v1/us-crop-statistics -> load state/year yield and price records for U.S. pilots
 POST /v1/crops/{crop_id}/planner-template
               -> add a sourced local nitrogen assumption
               -> copy planner_crop into crop_catalog
@@ -69,6 +72,9 @@ completion does not push a result to the browser; retry the original request.
 | `POST` | `/v1/crop-suitability` | GAEZ location screening for supported crops | `200` |
 | `POST` | `/v1/crop-calendar` | GAEZ cycle start/length plus FAO root reference | `200` |
 | `POST` | `/v1/crop-yield-baseline` | Historical rainfed yield baseline for economics | `200` |
+| `POST` | `/v1/soil-context` | USDA SSURGO mapped soil context for covered U.S. points | `200` |
+| `POST` | `/v1/us-crop-statistics` | USDA NASS state yield/price records | `200` |
+| `POST` | `/v1/rotation-advice` | Single polygon-to-rotation product workflow | `200` or `202` |
 | `POST` | `/v1/context` | Historical environmental data and acquisition jobs | `200` |
 | `GET` | `/v1/context/jobs/{job_id}` | Poll one IMERG/SMAP job | `200` |
 | `POST` | `/v1/plans` | Compare crop sequences | `200` or `202` |
@@ -178,7 +184,33 @@ provenance.
 FAO/IIASA GAEZ Module VI downscaled 2010 rainfed yield in t/ha. It can replace
 the synthetic `expected_yield_t_ha`, but remains an old regional baseline—not a
 current farm forecast. Prices and costs must come from a current market/local
-enterprise source.
+source.
+
+### Soil context
+
+`POST /v1/soil-context` accepts `latitude` and `longitude`. For covered U.S.
+points it returns the dominant SSURGO map component, horizon texture, organic
+matter, pH, drainage, hydrologic group, and thickness-weighted 0–30 cm
+available water capacity. For points outside SSURGO coverage, the normal `200`
+response has `status: "unavailable"` and `soil: null`, so the frontend can ask
+for another country-specific source or manual soil inputs.
+
+These values describe mapped soil components rather than a field sample.
+Current nitrogen, phosphorus, and potassium remain explicitly unavailable and
+must come from a recent soil test; never infer them from SMAP or SSURGO.
+
+### U.S. crop statistics
+
+`POST /v1/us-crop-statistics` accepts a two-letter `state_alpha`, `year`, and
+optional maize/soybean `crop_ids`. It returns the matching USDA NASS Quick Stats
+`YIELD` and `PRICE RECEIVED` records without discarding their units, production
+practice, utilization, reference period, or suppression codes. A suppressed
+value such as `(D)` remains in `raw_value` while numeric `value` is `null`.
+
+The backend must have `NASS_QUICKSTATS_API_KEY` configured. Without it the
+endpoint returns `status: "auth_required"`; the secret must never be placed in
+frontend code. These state aggregates are U.S.-only baselines and should not be
+presented as a farm-specific price or yield.
 
 ## 3. Environmental context
 
@@ -499,12 +531,28 @@ horizon issue is found. Missing calendar inputs produce
 
 The planner also accepts these optional, source-explicit inputs:
 
-- Field: `soil_water_capacity_depth_m`, `fallow_kc`, initial available P,
-  exchangeable K, organic-matter percentage and soil pH.
+- Field: `soil_test` with sample date/depth/source and measured N/P/K, organic
+  matter and pH; `management` with its source; `soil_water_capacity_depth_m`;
+  and `fallow_kc`. Legacy top-level initial soil values remain supported, but
+  must not be duplicated with `soil_test`.
+- Field irrigation: `irrigation.enabled`, trigger fraction, application
+  efficiency, optional seasonal `max_withdrawal_mm`, water cost/currency and a
+  source. The report separates water withdrawn from water effectively reaching
+  the root zone and subtracts supplied irrigation cost from complete economics.
 - Crop: `root_depth_m`; detailed `nutrient_budget` for N/P/K; sourced
   `soil_effects`; and sourced `economics` containing expected yield, price and
   variable cost plus a three-letter currency code. All crops in one scenario
   must use the same currency.
+- Economics may instead use sourced `cost_items` with per-hectare or fixed
+  whole-field amounts. The API reports line items, polygon-scaled totals,
+  marketable production, revenue, irrigation cost, net margin, ROI and
+  break-even price/yield.
+- Crop alternative: supply sourced `agronomy` coefficients instead of a
+  precomputed `nutrient_budget`. The API derives crop removal as expected yield
+  multiplied by N/P/K removal per tonne, applies fertilizer recovery, residue
+  release, other losses and soybean biological fixation. Never send both blocks.
+- Crop variety: `variety.name`, `maturity_days` and `source`. Maturity days can
+  supply duration when `duration_days` is absent.
 - Plan: `rotation_effect_catalog`, keyed like `maize->soybean`, with a sourced
   pest/disease break score from `-2` to `2`.
 - Plan: optional `ranking.weights` for net margin, irrigation, unmet water,
@@ -514,6 +562,12 @@ Detailed nutrient budgets use `fertilizer + residue_release -
 crop_uptake_from_soil - other_losses`. Biological N fixation is returned as a
 separate flow and is **not** automatically added to the soil mineral-N pool.
 All nutrient and soil-effect blocks require a `source` string.
+
+Every plan response includes `input_assessment`. It lists missing optional
+inputs by domain. Supplied features are calculated; missing values are never
+replaced by hidden crop defaults. Therefore a partial request can still produce
+water/calendar output while nutrient, economics or rotation-effect output stays
+incomplete or not evaluated.
 
 Root depth scales the accessible water capacity relative to
 `soil_water_capacity_depth_m`. This assumes a uniform water fraction through

@@ -6,6 +6,7 @@ from datetime import date, timedelta
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from grainstorm.planner import simulate_scenarios
@@ -16,6 +17,9 @@ from grainstorm.crops import PROFILE_VERSION, SOURCES, get_profile, list_profile
 from grainstorm.sources.gaez import GaezError, fetch_location_suitability
 from grainstorm.sources.gaez_calendar import fetch_location_crop_calendars
 from grainstorm.sources.gaez_yield import fetch_location_yield_baselines
+from grainstorm.sources.ssurgo import SsurgoError, fetch_us_soil_context
+from grainstorm.sources.nass import NassError, fetch_us_crop_statistics
+from grainstorm.rotation_advice import build_rotation_advice
 
 
 app = FastAPI(
@@ -119,6 +123,61 @@ class CropCalendarRequest(CropSuitabilityRequest):
     target_year: int = Field(ge=1900, le=2200)
 
 
+class SoilContextRequest(BaseModel):
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
+
+
+class UsCropStatisticsRequest(BaseModel):
+    state_alpha: str = Field(pattern=r"^[A-Za-z]{2}$")
+    year: int = Field(ge=1900, le=2200)
+    crop_ids: list[Literal["grain_maize", "grain_soybean"]] = Field(
+        default_factory=lambda: ["grain_maize", "grain_soybean"], min_length=1, max_length=2)
+
+    @model_validator(mode="after")
+    def validate_distinct_crops(self):
+        if len(self.crop_ids) != len(set(self.crop_ids)):
+            raise ValueError("crop_ids must not contain duplicates")
+        return self
+
+
+class GeoJsonPolygon(BaseModel):
+    type: Literal["Polygon"] = "Polygon"
+    coordinates: list[list[list[float]]]
+
+
+class RotationAdviceRequest(BaseModel):
+    field_polygon: GeoJsonPolygon
+    field_name: str = Field(default="Selected field", min_length=1, max_length=200)
+    crop_sequence: list[Literal["grain_maize", "grain_soybean"]] = Field(min_length=1, max_length=2)
+    preferred_start_date: date
+    planning_end_date: date
+    schedule_mode: Literal["fixed_gap", "next_planting_window"] = "next_planting_window"
+    gaps_after_crops_days: list[int] | None = None
+    compare_all_orders: bool = True
+    field_inputs: dict[str, Any] = Field(default_factory=dict)
+    soil_test: dict[str, Any] | None = None
+    management: dict[str, Any] | None = None
+    irrigation: dict[str, Any] | None = None
+    crop_inputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    rotation_effect_catalog: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    ranking: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_rotation_request(self):
+        if self.planning_end_date < self.preferred_start_date:
+            raise ValueError("planning_end_date cannot be before preferred_start_date")
+        if self.gaps_after_crops_days is not None:
+            if len(self.gaps_after_crops_days) != len(self.crop_sequence) - 1:
+                raise ValueError("gaps_after_crops_days needs one value between each pair of crops")
+            if any(value < 0 for value in self.gaps_after_crops_days):
+                raise ValueError("gaps_after_crops_days cannot contain negative values")
+        unknown = set(self.crop_inputs) - set(self.crop_sequence)
+        if unknown:
+            raise ValueError(f"crop_inputs contains a crop not in crop_sequence: {sorted(unknown)[0]}")
+        return self
+
+
 def _records_with_nulls(dataframe: pd.DataFrame) -> list[dict[str, Any]]:
     safe_frame = dataframe.astype(object).where(pd.notna(dataframe), None)
     return safe_frame.to_dict(orient="records")
@@ -191,6 +250,38 @@ def get_crop_yield_baseline(request: CropSuitabilityRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except GaezError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post('/v1/soil-context')
+def get_soil_context(request: SoilContextRequest) -> dict[str, Any]:
+    try:
+        return fetch_us_soil_context(request.latitude, request.longitude)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SsurgoError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post('/v1/us-crop-statistics')
+def get_us_crop_statistics(request: UsCropStatisticsRequest) -> dict[str, Any]:
+    try:
+        return fetch_us_crop_statistics(request.state_alpha, request.year, request.crop_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except NassError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post('/v1/rotation-advice')
+def get_rotation_advice(request: RotationAdviceRequest,
+                        service: ContextService = Depends(get_context_service)) -> JSONResponse:
+    try:
+        status_code, payload = build_rotation_advice(request.model_dump(), service)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (GaezError, SsurgoError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return JSONResponse(status_code=status_code, content=payload)
 
 
 @app.post("/v1/context")

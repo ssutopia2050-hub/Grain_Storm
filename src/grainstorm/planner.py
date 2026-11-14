@@ -110,8 +110,121 @@ def _optional_number(value: Any, label: str, *, minimum: float | None = None) ->
     return None if value is None else _number(value, label, minimum=minimum)
 
 
+def _input_assessment(config: dict[str, Any]) -> dict[str, Any]:
+    field = config.get("field", {})
+    catalog = config.get("crop_catalog", {})
+    scenarios = config.get("scenarios", [])
+    missing: list[str] = []
+    domains: dict[str, Any] = {}
+    soil_test = field.get("soil_test")
+    soil_fields = ("mineral_n_kg_ha", "available_p_kg_ha", "exchangeable_k_kg_ha",
+                   "organic_matter_percent", "ph")
+    soil_missing = [name for name in soil_fields if not isinstance(soil_test, dict) or soil_test.get(name) is None]
+    domains["soil_test"] = {"status": "complete" if not soil_missing else "partial",
+                            "missing": soil_missing}
+    if soil_missing:
+        missing.extend(f"field.soil_test.{name}" for name in soil_missing)
+    crop_details = {}
+    for crop_id, crop in catalog.items():
+        crop_missing = []
+        if not crop.get("planting_windows"):
+            crop_missing.append("planting_windows")
+        if not crop.get("nutrient_budget") and not crop.get("agronomy"):
+            crop_missing.append("nutrient_budget_or_agronomy")
+        if not crop.get("economics"):
+            crop_missing.append("economics")
+        if not crop.get("root_depth_m"):
+            crop_missing.append("root_depth_m")
+        crop_details[crop_id] = {"status": "complete" if not crop_missing else "partial",
+                                 "missing": crop_missing}
+        missing.extend(f"crop_catalog.{crop_id}.{name}" for name in crop_missing)
+    domains["crops"] = crop_details
+    transitions = {f"{sequence[index]}->{sequence[index + 1]}"
+                   for scenario in scenarios if isinstance(scenario, dict)
+                   for sequence in [scenario.get("crops", [])]
+                   for index in range(max(0, len(sequence) - 1))}
+    rotation_catalog = config.get("rotation_effect_catalog", {})
+    missing_transitions = sorted(transition for transition in transitions if transition not in rotation_catalog)
+    domains["rotation_effects"] = {
+        "status": "complete" if not missing_transitions else "partial",
+        "missing_transitions": missing_transitions,
+    }
+    missing.extend(f"rotation_effect_catalog.{transition}" for transition in missing_transitions)
+    management = field.get("management")
+    domains["management"] = {"status": "complete" if isinstance(management, dict) else "not_provided"}
+    if not isinstance(management, dict):
+        missing.append("field.management")
+    return {
+        "status": "complete" if not missing else "partial",
+        "provided_features_are_calculated": True,
+        "missing_inputs": missing,
+        "domains": domains,
+        "note": "Missing optional inputs are not guessed; affected outputs remain incomplete or not evaluated.",
+    }
+
+
 def _nutrient_change(crop: dict[str, Any], crop_name: str, nutrient: str) -> tuple[float | None, dict[str, float] | None]:
     budget = crop.get("nutrient_budget")
+    agronomy = crop.get("agronomy")
+    if budget is not None and agronomy is not None:
+        raise ValueError(f"{crop_name} must use nutrient_budget or agronomy, not both.")
+    if budget is None and agronomy is not None:
+        if not isinstance(agronomy, dict):
+            raise ValueError(f"{crop_name}.agronomy must be an object.")
+        source = agronomy.get("source")
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError(f"{crop_name}.agronomy.source is required.")
+        removal = agronomy.get("nutrient_removal_kg_per_tonne", {})
+        if not isinstance(removal, dict):
+            raise ValueError(f"{crop_name}.agronomy.nutrient_removal_kg_per_tonne must be an object.")
+        if nutrient in removal:
+            economics = crop.get("economics")
+            if not isinstance(economics, dict) or economics.get("expected_yield_t_ha") is None:
+                raise ValueError(f"{crop_name}.economics.expected_yield_t_ha is required to derive nutrient removal.")
+            yield_t_ha = _number(economics["expected_yield_t_ha"], f"{crop_name}.expected_yield_t_ha", minimum=0)
+            total_removal = yield_t_ha * _number(removal[nutrient], f"{crop_name}.{nutrient}_removal", minimum=0)
+            applied_map = agronomy.get("fertilizer_applied_kg_ha", {})
+            recovery_map = agronomy.get("fertilizer_recovery_fraction", {})
+            residue_map = agronomy.get("residue_release_kg_ha", {})
+            loss_map = agronomy.get("other_losses_kg_ha", {})
+            for label, value in (("fertilizer_applied_kg_ha", applied_map),
+                                 ("fertilizer_recovery_fraction", recovery_map),
+                                 ("residue_release_kg_ha", residue_map),
+                                 ("other_losses_kg_ha", loss_map)):
+                if not isinstance(value, dict):
+                    raise ValueError(f"{crop_name}.agronomy.{label} must be an object.")
+            applied = _number(applied_map.get(nutrient, 0), f"{crop_name}.{nutrient}_fertilizer", minimum=0)
+            if applied and nutrient not in recovery_map:
+                raise ValueError(f"{crop_name}.agronomy.fertilizer_recovery_fraction.{nutrient} is required.")
+            recovery = _number(recovery_map.get(nutrient, 0), f"{crop_name}.{nutrient}_recovery", minimum=0)
+            if recovery > 1:
+                raise ValueError("fertilizer recovery fractions must be between 0 and 1.")
+            fertilizer = applied * recovery
+            residue = _number(residue_map.get(nutrient, 0), f"{crop_name}.{nutrient}_residue", minimum=0)
+            losses = _number(loss_map.get(nutrient, 0), f"{crop_name}.{nutrient}_losses", minimum=0)
+            fixation = 0.0
+            uptake_from_soil = total_removal
+            if nutrient == "n":
+                fixation = _number(agronomy.get("biological_fixation_n_kg_ha", 0),
+                                   f"{crop_name}.biological_fixation_n_kg_ha", minimum=0)
+                uptake_from_soil = max(0.0, total_removal - fixation)
+            net = fertilizer + residue - uptake_from_soil - losses
+            detail = {
+                "fertilizer_applied_kg_ha": applied,
+                "fertilizer_recovery_fraction": recovery,
+                "fertilizer": fertilizer,
+                "residue_release": residue,
+                "crop_total_removal_kg_ha": total_removal,
+                "crop_uptake_from_soil": uptake_from_soil,
+                "other_losses": losses,
+                "net_change_kg_ha": net,
+                "source": source.strip(),
+                "note": agronomy.get("note"),
+                "calculation": "yield × removal coefficient; fertilizer contribution is applied × recovery",
+            }
+            if nutrient == "n":
+                detail["biological_fixation"] = fixation
+            return net, detail
     if budget is None:
         if nutrient == "n":
             return _number(crop.get("net_soil_n_change_kg_ha"),
@@ -158,16 +271,81 @@ def _economics(crop: dict[str, Any], crop_name: str, area_ha: float) -> dict[str
         raise ValueError(f"{crop_name}.economics.currency must be a three-letter currency code.")
     yield_t_ha = _number(raw.get("expected_yield_t_ha"), f"{crop_name}.expected_yield_t_ha", minimum=0)
     price = _number(raw.get("price_per_tonne"), f"{crop_name}.price_per_tonne", minimum=0)
-    cost = _number(raw.get("variable_cost_per_ha"), f"{crop_name}.variable_cost_per_ha", minimum=0)
-    gross_ha = yield_t_ha * price
+    marketable_fraction = _number(raw.get("marketable_yield_fraction", 1),
+                                  f"{crop_name}.marketable_yield_fraction", minimum=0)
+    if marketable_fraction > 1:
+        raise ValueError(f"{crop_name}.marketable_yield_fraction must be between 0 and 1.")
+    raw_items = raw.get("cost_items", [])
+    if not isinstance(raw_items, list):
+        raise ValueError(f"{crop_name}.economics.cost_items must be an array.")
+    if raw.get("variable_cost_per_ha") is None and not raw_items:
+        raise ValueError(f"{crop_name}.economics requires variable_cost_per_ha or cost_items.")
+    if raw.get("variable_cost_per_ha") is not None and raw_items:
+        raise ValueError(f"{crop_name}.economics must use variable_cost_per_ha or cost_items, not both.")
+    if raw_items and raw.get("cost_completeness_confirmed") is not True:
+        raise ValueError(f"{crop_name}.economics.cost_completeness_confirmed must be true for itemized costs.")
+    cost_items = []
+    variable_cost = _number(raw.get("variable_cost_per_ha", 0),
+                            f"{crop_name}.variable_cost_per_ha", minimum=0)
+    if raw.get("variable_cost_per_ha") is not None:
+        cost_items.append({"name": "Other variable production costs", "category": "other",
+                           "amount_per_ha": variable_cost,
+                           "amount_for_field": variable_cost * area_ha,
+                           "source": source.strip()})
+    for index, item in enumerate(raw_items):
+        if not isinstance(item, dict):
+            raise ValueError(f"{crop_name}.economics.cost_items[{index}] must be an object.")
+        name, item_source = item.get("name"), item.get("source")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{crop_name}.economics.cost_items[{index}].name is required.")
+        if not isinstance(item_source, str) or not item_source.strip():
+            raise ValueError(f"{crop_name}.economics.cost_items[{index}].source is required.")
+        per_ha_raw, field_raw = item.get("amount_per_ha"), item.get("amount_for_field")
+        if (per_ha_raw is None) == (field_raw is None):
+            raise ValueError(f"{crop_name}.economics.cost_items[{index}] requires exactly one of amount_per_ha or amount_for_field.")
+        amount_field = (_number(per_ha_raw, f"{crop_name}.cost_items[{index}].amount_per_ha", minimum=0) * area_ha
+                        if per_ha_raw is not None else
+                        _number(field_raw, f"{crop_name}.cost_items[{index}].amount_for_field", minimum=0))
+        cost_items.append({
+            "name": name.strip(), "category": item.get("category", "other"),
+            "amount_per_ha": round(amount_field / area_ha, 2),
+            "amount_for_field": round(amount_field, 2), "source": item_source.strip(),
+            "note": item.get("note"),
+        })
+    additional_income_ha = _number(raw.get("additional_income_per_ha", 0),
+                                   f"{crop_name}.additional_income_per_ha", minimum=0)
+    marketable_yield = yield_t_ha * marketable_fraction
+    gross_ha = marketable_yield * price
+    total_cost_field = sum(item["amount_for_field"] for item in cost_items)
+    total_cost_ha = total_cost_field / area_ha
+    revenue_field = gross_ha * area_ha
+    additional_income_field = additional_income_ha * area_ha
+    margin_field = revenue_field + additional_income_field - total_cost_field
+    margin_ha = margin_field / area_ha
+    roi = None if total_cost_field == 0 else margin_field / total_cost_field * 100
+    break_even_price = None if marketable_yield == 0 else total_cost_ha / marketable_yield
+    break_even_yield = None if price == 0 or marketable_fraction == 0 else total_cost_ha / price / marketable_fraction
     return {
         "expected_yield_t_ha": yield_t_ha,
+        "marketable_yield_fraction": marketable_fraction,
+        "marketable_yield_t_ha": round(marketable_yield, 4),
         "price_per_tonne": price,
-        "variable_cost_per_ha": cost,
+        "variable_cost_per_ha": round(total_cost_ha, 2),
+        "cost_items": cost_items,
+        "cost_completeness_confirmed": True,
+        "total_crop_cost_per_ha": round(total_cost_ha, 2),
+        "total_crop_cost_for_field": round(total_cost_field, 2),
         "gross_revenue_per_ha": round(gross_ha, 2),
-        "estimated_margin_per_ha": round(gross_ha - cost, 2),
+        "gross_revenue_for_field": round(revenue_field, 2),
+        "additional_income_per_ha": round(additional_income_ha, 2),
+        "additional_income_for_field": round(additional_income_field, 2),
+        "estimated_margin_per_ha": round(margin_ha, 2),
         "expected_production_t_for_field": round(yield_t_ha * area_ha, 2),
-        "estimated_margin_for_field": round((gross_ha - cost) * area_ha, 2),
+        "marketable_production_t_for_field": round(marketable_yield * area_ha, 2),
+        "estimated_margin_for_field": round(margin_field, 2),
+        "return_on_cost_percent": None if roi is None else round(roi, 2),
+        "break_even_price_per_tonne": None if break_even_price is None else round(break_even_price, 2),
+        "break_even_yield_t_ha": None if break_even_yield is None else round(break_even_yield, 4),
         "currency": currency.strip().upper(),
         "source": source.strip(),
         "basis": "user-supplied baseline; not adjusted for modeled stress",
@@ -256,6 +434,33 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
     if not scenarios:
         raise ValueError("Add at least one crop sequence under scenarios.")
 
+    soil_test = field.get("soil_test")
+    if soil_test is not None:
+        if not isinstance(soil_test, dict):
+            raise ValueError("field.soil_test must be an object.")
+        for required in ("source", "sample_date", "depth_cm"):
+            if soil_test.get(required) in (None, ""):
+                raise ValueError(f"field.soil_test.{required} is required when soil_test is supplied.")
+        try:
+            date.fromisoformat(str(soil_test["sample_date"]))
+        except ValueError as exc:
+            raise ValueError("field.soil_test.sample_date must use YYYY-MM-DD format.") from exc
+        _number(soil_test["depth_cm"], "field.soil_test.depth_cm", minimum=0.000001)
+    else:
+        soil_test = {}
+
+    def soil_value(field_key: str, test_key: str) -> Any:
+        if field.get(field_key) is not None and soil_test.get(test_key) is not None:
+            raise ValueError(f"Supply {field_key} or soil_test.{test_key}, not both.")
+        return field.get(field_key) if field.get(field_key) is not None else soil_test.get(test_key)
+
+    management = field.get("management")
+    if management is not None:
+        if not isinstance(management, dict):
+            raise ValueError("field.management must be an object.")
+        if not isinstance(management.get("source"), str) or not management["source"].strip():
+            raise ValueError("field.management.source is required.")
+
     area_ha = _number(field.get("area_ha"), "field.area_ha", minimum=0.000001)
     capacity = _number(
         field.get("soil_water_capacity_mm"),
@@ -268,17 +473,17 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
         minimum=0,
     )
     initial_n = _number(
-        field.get("initial_mineral_n_kg_ha"),
+        soil_value("initial_mineral_n_kg_ha", "mineral_n_kg_ha"),
         "field.initial_mineral_n_kg_ha",
         minimum=0,
     )
-    initial_p = _optional_number(field.get("initial_available_p_kg_ha"),
+    initial_p = _optional_number(soil_value("initial_available_p_kg_ha", "available_p_kg_ha"),
                                  "field.initial_available_p_kg_ha", minimum=0)
-    initial_k = _optional_number(field.get("initial_exchangeable_k_kg_ha"),
+    initial_k = _optional_number(soil_value("initial_exchangeable_k_kg_ha", "exchangeable_k_kg_ha"),
                                  "field.initial_exchangeable_k_kg_ha", minimum=0)
-    initial_om = _optional_number(field.get("initial_organic_matter_percent"),
+    initial_om = _optional_number(soil_value("initial_organic_matter_percent", "organic_matter_percent"),
                                   "field.initial_organic_matter_percent", minimum=0)
-    initial_ph = _optional_number(field.get("initial_soil_ph"), "field.initial_soil_ph", minimum=0)
+    initial_ph = _optional_number(soil_value("initial_soil_ph", "ph"), "field.initial_soil_ph", minimum=0)
     if initial_om is not None and initial_om > 100:
         raise ValueError("field.initial_organic_matter_percent cannot exceed 100.")
     if initial_ph is not None and initial_ph > 14:
@@ -289,16 +494,39 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
     if initial_water > capacity:
         raise ValueError("Initial soil water cannot exceed soil water capacity.")
 
+    irrigation = field.get("irrigation")
+    if irrigation is not None and not isinstance(irrigation, dict):
+        raise ValueError("field.irrigation must be an object.")
+    irrigation = irrigation or {}
+    if irrigation:
+        irrigation_source = irrigation.get("source")
+        if not isinstance(irrigation_source, str) or not irrigation_source.strip():
+            raise ValueError("field.irrigation.source is required.")
+    else:
+        irrigation_source = None
     trigger = _number(
-        field.get("irrigation_trigger_fraction", 0.5),
+        irrigation.get("trigger_fraction", field.get("irrigation_trigger_fraction", 0.5)),
         "field.irrigation_trigger_fraction",
         minimum=0,
     )
     if trigger > 1:
         raise ValueError("irrigation_trigger_fraction must be between 0 and 1.")
-    irrigation_enabled = field.get("irrigation_enabled", False)
+    irrigation_enabled = irrigation.get("enabled", field.get("irrigation_enabled", False))
     if not isinstance(irrigation_enabled, bool):
         raise ValueError("field.irrigation_enabled must be true or false.")
+    irrigation_efficiency = _number(irrigation.get("application_efficiency", 1),
+                                    "field.irrigation.application_efficiency", minimum=0.000001)
+    if irrigation_efficiency > 1:
+        raise ValueError("field.irrigation.application_efficiency must be between 0 and 1.")
+    max_irrigation_mm = _optional_number(irrigation.get("max_withdrawal_mm"),
+                                         "field.irrigation.max_withdrawal_mm", minimum=0)
+    irrigation_cost_per_m3 = _number(irrigation.get("variable_cost_per_m3", 0),
+                                     "field.irrigation.variable_cost_per_m3", minimum=0)
+    irrigation_currency = irrigation.get("currency")
+    if irrigation_cost_per_m3:
+        if not isinstance(irrigation_currency, str) or len(irrigation_currency.strip()) != 3:
+            raise ValueError("field.irrigation.currency must be supplied with irrigation cost.")
+        irrigation_currency = irrigation_currency.strip().upper()
     rotation_effect_catalog = config.get("rotation_effect_catalog", {})
     if not isinstance(rotation_effect_catalog, dict):
         raise ValueError("rotation_effect_catalog must be an object.")
@@ -369,11 +597,16 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
         fallow_periods = []
         rotation_effects = []
         scenario_margin = 0.0
+        scenario_gross_revenue = 0.0
+        scenario_additional_income = 0.0
+        scenario_crop_cost = 0.0
         scenario_currency = None
         economics_complete = True
         pest_score = 0.0
         pest_effects_complete = True
         total_nutrient_shortfall = 0.0
+        scenario_irrigation_withdrawal = 0.0
+        scenario_effective_irrigation = 0.0
 
         for crop_index, crop_name in enumerate(crop_sequence):
             if crop_name not in catalog:
@@ -460,7 +693,17 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                     rotation_effects.append({"transition": transition_key, "status": "evaluated",
                                              "pest_disease_break_score": score,
                                              "source": source.strip(), "note": effect.get("note")})
-            duration_value = _number(crop.get("duration_days"), f"{crop_name}.duration_days", minimum=1)
+            variety = crop.get("variety")
+            if variety is not None and not isinstance(variety, dict):
+                raise ValueError(f"{crop_name}.variety must be an object.")
+            if variety is not None:
+                for required in ("name", "maturity_days", "source"):
+                    if variety.get(required) in (None, ""):
+                        raise ValueError(f"{crop_name}.variety.{required} is required.")
+            duration_input = crop.get("duration_days")
+            if duration_input is None and variety is not None:
+                duration_input = variety.get("maturity_days")
+            duration_value = _number(duration_input, f"{crop_name}.duration_days", minimum=1)
             if not duration_value.is_integer():
                 raise ValueError(f"{crop_name}.duration_days must be a whole number.")
             duration = int(duration_value)
@@ -517,6 +760,7 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
             crop_water_start = water_mm
             crop_rain = 0.0
             crop_irrigation = 0.0
+            crop_effective_irrigation = 0.0
             crop_unmet = 0.0
             crop_need_total = 0.0
 
@@ -534,15 +778,26 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
 
                 threshold = effective_capacity * (1 - trigger)
                 if irrigation_enabled and water_mm < threshold:
-                    amount = threshold - water_mm
-                    water_mm += amount
-                    crop_irrigation += amount
-                    irrigation_events.append({
-                        "date": day.isoformat(),
-                        "amount_mm": round(amount, 2),
-                        "amount_m3_for_field": round(amount * area_ha * 10, 2),
-                        "crop": crop_name,
-                    })
+                    effective_needed = threshold - water_mm
+                    withdrawal = effective_needed / irrigation_efficiency
+                    if max_irrigation_mm is not None:
+                        withdrawal = min(withdrawal, max(0.0, max_irrigation_mm - scenario_irrigation_withdrawal))
+                    effective_amount = withdrawal * irrigation_efficiency
+                    water_mm += effective_amount
+                    crop_irrigation += withdrawal
+                    crop_effective_irrigation += effective_amount
+                    scenario_irrigation_withdrawal += withdrawal
+                    scenario_effective_irrigation += effective_amount
+                    if withdrawal:
+                        irrigation_events.append({
+                            "date": day.isoformat(),
+                            "amount_mm": round(withdrawal, 2),
+                            "withdrawal_mm": round(withdrawal, 2),
+                            "effective_amount_mm": round(effective_amount, 2),
+                            "application_efficiency": irrigation_efficiency,
+                            "amount_m3_for_field": round(withdrawal * area_ha * 10, 2),
+                            "crop": crop_name,
+                        })
 
                 if total_need is not None:
                     daily_need = total_need / duration
@@ -632,6 +887,9 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                     raise ValueError("All crop economics in one scenario must use the same currency.")
                 scenario_currency = economics["currency"]
                 scenario_margin += economics["estimated_margin_for_field"]
+                scenario_gross_revenue += economics["gross_revenue_for_field"]
+                scenario_additional_income += economics["additional_income_for_field"]
+                scenario_crop_cost += economics["total_crop_cost_for_field"]
 
             sequence.append({
                 "crop": crop_name,
@@ -645,6 +903,7 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                 "duration_days": duration,
                 "rain_mm": round(crop_rain, 2),
                 "irrigation_mm": round(crop_irrigation, 2),
+                "effective_irrigation_mm": round(crop_effective_irrigation, 2),
                 "crop_water_need_mm": round(crop_need_total, 2),
                 "root_depth_m": root_depth,
                 "effective_root_zone_capacity_mm": round(effective_capacity, 2),
@@ -681,6 +940,7 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                     )
                     if crop.get(key) is not None
                 },
+                "variety": variety,
                 "_harvest_date": crop_end,
             })
 
@@ -692,6 +952,8 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
             )
 
         total_irrigation_mm = sum(item["irrigation_mm"] for item in sequence)
+        total_irrigation_m3 = total_irrigation_mm * area_ha * 10
+        irrigation_cost = total_irrigation_m3 * irrigation_cost_per_m3
         first_planting = date.fromisoformat(sequence[0]["planting_date"])
         last_harvest = sequence[-1]["_harvest_date"]
         for item in sequence:
@@ -705,7 +967,14 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
         else:
             calendar_status = "feasible"
             calendar_feasible = True
+        if economics_complete and irrigation_cost:
+            if scenario_currency != irrigation_currency:
+                raise ValueError("Irrigation cost currency must match crop economics currency.")
+            scenario_margin -= irrigation_cost
         estimated_margin = round(scenario_margin, 2) if economics_complete else None
+        total_scenario_cost = scenario_crop_cost + irrigation_cost
+        scenario_roi = (None if not economics_complete or total_scenario_cost == 0
+                        else scenario_margin / total_scenario_cost * 100)
         evaluated_pest_score = round(pest_score, 2) if pest_effects_complete else None
         results.append({
             "name": scenario.get("name", "Unnamed scenario"),
@@ -724,7 +993,10 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
             "pest_disease_rotation_score": evaluated_pest_score,
             "total_rain_mm": round(total_rain_mm, 2),
             "total_irrigation_mm": round(total_irrigation_mm, 2),
-            "total_irrigation_m3_for_field": round(total_irrigation_mm * area_ha * 10, 2),
+            "total_effective_irrigation_mm": round(scenario_effective_irrigation, 2),
+            "total_irrigation_m3_for_field": round(total_irrigation_m3, 2),
+            "irrigation_limit_mm": max_irrigation_mm,
+            "irrigation_cost_for_field": round(irrigation_cost, 2),
             "total_unmet_water_mm": round(unmet_water_mm, 2),
             "estimated_final_mineral_n_kg_ha": round(mineral_n, 2),
             "estimated_final_mineral_n_kg_for_field": round(mineral_n * area_ha, 2),
@@ -736,6 +1008,19 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
             "estimated_total_margin_for_field": estimated_margin,
             "economics_currency": scenario_currency if economics_complete else None,
             "economics_status": "complete" if economics_complete else "not_fully_evaluated",
+            "economics_summary": {
+                "status": "complete" if economics_complete else "not_fully_evaluated",
+                "field_area_ha": area_ha,
+                "gross_crop_revenue_for_field": round(scenario_gross_revenue, 2),
+                "additional_income_for_field": round(scenario_additional_income, 2),
+                "crop_costs_for_field": round(scenario_crop_cost, 2),
+                "irrigation_cost_for_field": round(irrigation_cost, 2),
+                "total_cost_for_field": round(total_scenario_cost, 2),
+                "net_margin_for_field": estimated_margin,
+                "net_margin_per_ha": None if estimated_margin is None else round(estimated_margin / area_ha, 2),
+                "return_on_cost_percent": None if scenario_roi is None else round(scenario_roi, 2),
+                "currency": scenario_currency if economics_complete else None,
+            },
             "irrigation_events": irrigation_events,
         })
 
@@ -754,9 +1039,21 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
             "initial_organic_matter_percent": initial_om,
             "initial_soil_ph": initial_ph,
             "fallow_kc": fallow_kc,
+            "irrigation": {
+                "enabled": irrigation_enabled,
+                "trigger_fraction": trigger,
+                "application_efficiency": irrigation_efficiency,
+                "max_withdrawal_mm": max_irrigation_mm,
+                "variable_cost_per_m3": irrigation_cost_per_m3,
+                "currency": irrigation_currency,
+                "source": irrigation_source,
+            },
+            "soil_test": soil_test or None,
+            "management": management,
         },
         "scenarios": results,
         "comparison": {"ranking": ranking},
+        "input_assessment": _input_assessment(config),
         "assumptions_and_limits": [
             "This is a transparent planning calculator, not a validated crop-growth or yield model.",
             "Rainfall is treated as effective infiltration up to the active root-zone capacity; runoff and drainage are not modeled.",
@@ -764,7 +1061,7 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
             "Crop water, nutrient, soil-effect and economic values are explicit sourced/user assumptions; they are not inferred from crop names.",
             "When stage_kc and stage_days are supplied, daily crop water demand is estimated as supplied ET0 multiplied by the user-supplied coefficient for that growth stage.",
             "Detailed N/P/K budgets separately represent fertilizer, residue release, crop uptake from soil and other losses; biological N fixation is reported separately and is not automatically credited to the soil mineral-N pool.",
-            "Irrigation quantities are planning estimates; they do not account for delivery efficiency, equipment limits, or local regulations.",
+            "When supplied, irrigation application efficiency, seasonal withdrawal limit and variable water cost are included; equipment flow-rate and local regulations remain caller responsibilities.",
             "Rotation gaps and planting windows are scenario inputs. next_planting_window moves planting to the earliest supplied recurring window; fixed_gap reports an out-of-window issue without moving the date.",
             "When fallow_kc is supplied, rainfall and ET0-based evaporation are simulated during uncropped gaps; otherwise gap water balance is explicitly not evaluated.",
             "Yield, price and cost are caller-supplied baselines and are not adjusted for modeled stress.",
