@@ -17,6 +17,7 @@ from grainstorm.intelligence.schemas import (
     ValidationCheck,
     ValidationStatus,
     ValidatedSchedule,
+    SCHEMA_VERSION,
 )
 
 
@@ -253,14 +254,16 @@ def validate_ai_draft(*, draft: AIDecisionDraft, context: dict[str, Any],
         scientific_validation="not_established",
     )
     metadata = ReportMetadata(
-        schema_version="1.0.0",
+        schema_version=SCHEMA_VERSION,
         analysis_identifier=analysis_identifier,
         report_identifier=f"gsdr_{uuid4().hex}",
         generated_at=datetime.now(timezone.utc),
         ai_model_identifier=model,
         planning_start=start,
         planning_end=end,
-        openai_response_id=response_id,
+        openai_response_id=None,
+        ai_response_id=response_id,
+        ai_provider="gemini",
         token_usage=token_usage,
     )
     field_context = FieldContext(

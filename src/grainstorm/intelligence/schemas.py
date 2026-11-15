@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 class StrictModel(BaseModel):
@@ -166,6 +166,8 @@ class ReportMetadata(StrictModel):
     planning_start: date
     planning_end: date
     openai_response_id: str | None
+    ai_response_id: str | None
+    ai_provider: str
     token_usage: dict[str, int]
 
 

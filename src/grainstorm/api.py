@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import time
+import sqlite3
 
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException
@@ -27,7 +28,7 @@ from grainstorm.sources.nass import NassError, fetch_us_crop_statistics
 from grainstorm.sources.forecast import ForecastError
 from grainstorm.rotation_advice import build_rotation_advice
 from grainstorm.intelligence.context_builder import ContextBuildError
-from grainstorm.intelligence.openai_engine import (
+from grainstorm.intelligence.common import (
     IntelligenceConfigurationError, IntelligenceGenerationError,
 )
 from grainstorm.intelligence.orchestrator import IntelligenceOrchestrator
@@ -249,10 +250,12 @@ class IntelligenceRequest(BaseModel):
     analysis: dict[str, Any]
 
 
-def get_intelligence_orchestrator() -> IntelligenceOrchestrator:
+async def get_intelligence_orchestrator() -> IntelligenceOrchestrator:
     try:
-        return IntelligenceOrchestrator()
-    except (IntelligenceConfigurationError, ValueError) as exc:
+        if not hasattr(app.state, "intelligence_orchestrator"):
+            app.state.intelligence_orchestrator = IntelligenceOrchestrator()
+        return app.state.intelligence_orchestrator
+    except (IntelligenceConfigurationError, ValueError, OSError, sqlite3.Error) as exc:
         raise HTTPException(status_code=503, detail="Invalid AI backend configuration.") from exc
 
 
@@ -383,6 +386,8 @@ async def create_intelligence_report(
         raise HTTPException(status_code=exc.status_code, detail={
             "code": exc.code, "message": str(exc), "retryable": exc.retryable,
         }) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail="AI cache is unavailable; check backend storage.") from exc
 
 
 @app.post("/v1/context")

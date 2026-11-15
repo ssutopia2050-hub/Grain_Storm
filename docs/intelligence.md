@@ -1,173 +1,178 @@
-# Grain Storm intelligence API v1
+# Grain Storm Gemini intelligence API
 
-The optional intelligence layer uses OpenAI to assess the evidence, compare crop
-options, propose revisions and prioritize farmer actions. Python preserves the
-scientific analysis and independently checks the AI draft. No new database or
-background AI worker is required.
+The optional decision layer uses Google's official `google-genai` SDK and Gemini
+Developer API. Scientific analysis continues to run without an AI key.
 
-## Architecture
+## Architecture and repository map
 
-`rotation-advice analysis → context_builder → OpenAI Responses API → validator → GrainStormDecisionReport`
+`POST /v1/rotation-advice → context_builder → Gemini → AIDecisionDraft → independent validator → GrainStormDecisionReport`
 
-- `src/grainstorm/api.py`: FastAPI entry point; existing endpoints continue to work without an OpenAI key.
-- `rotation_advice.py`: combines polygon geometry, FAO GAEZ suitability/calendar/yield,
-  SSURGO mapped soil context, IMERG/ERA5 historical weather or bounded forecast/scenario,
-  automatic input resolution and `planner.simulate_scenarios`.
-- `context.py` and `satellite_jobs.py`: existing SQLite environmental cache and satellite acquisition.
-- `intelligence/context_builder.py`: deterministic compact evidence with stable IDs and original paths.
-- `intelligence/schemas.py`: model-owned `AIDecisionDraft` and backend-assembled `GrainStormDecisionReport`.
-- `intelligence/openai_engine.py`: official asynchronous Python SDK, Responses `parse`, Pydantic Structured Outputs.
-- `intelligence/validator.py`: constraints, evidence references, numerical claims, schedule checks and report assembly.
-- `intelligence/orchestrator.py`: one model generation and one validation pass; no recursive calls.
+The existing FastAPI backend assembles source-backed analysis in
+`rotation_advice.py`, using polygon geometry, FAO GAEZ suitability/calendars/yields,
+SSURGO mapped soil context, IMERG/ERA5 weather, input resolution and
+`planner.simulate_scenarios`. Environmental acquisition and SQLite caching remain
+in `context.py` and `satellite_jobs.py`.
 
-The existing application does not persist analyses. The endpoint accepts the complete
-analysis object and computes a SHA-256 content identifier. This is an identifier, not
-a retrieval token. Caller-submitted analysis is not authenticated as server-generated;
-the audit explicitly records that origin. Keep the original analysis for inspection.
+The intelligence package reuses `context_builder.py`, `schemas.py` and
+`validator.py`. `gemini_engine.py` handles async generate_content and Pydantic JSON
+output. `common.py` holds provider-neutral errors/results; `prompts.py` versions
+the instructions. `cache.py` stores AI drafts and atomic call reservations in
+SQLite. `orchestrator.py` checks the cache, generates once and independently
+validates each report. The old OpenAI adapter and project dependency were removed;
+there is no Ollama integration or provider fallback.
 
-## Setup
+## Setup and free-tier verification
 
-Install project dependencies with `python -m pip install -e .` in the environment.
-Configure these on the backend only:
+1. Obtain a Gemini API key in [Google AI Studio](https://aistudio.google.com/api-keys).
+2. Select a project using the free tier. Check its billing status and quotas in
+   AI Studio. Do not enable paid billing if you require free-only usage.
+3. Check the selected model's current availability and free-tier eligibility on
+   [Google's pricing page](https://ai.google.dev/gemini-api/docs/pricing) and your
+   account's model/quota listing. The default model name does not guarantee
+   access or eligibility.
+4. Install dependencies and configure environment variables, then restart.
 
-| Variable | Requirement |
+Application limits cannot guarantee zero charges when the Google project has paid
+billing enabled. The application never upgrades billing, changes providers or
+switches models automatically. Google free-tier data handling may differ from
+paid-tier terms; review those before sending real farm information.
+
+```bash
+python -m pip install -e .
+export GEMINI_API_KEY='your-key'
+export GRAINSTORM_AI_PROVIDER=gemini
+export GRAINSTORM_GEMINI_MODEL=gemini-2.5-flash
+uvicorn grainstorm.api:app --reload
+```
+
+Keep keys server-side in deployment secrets. Shell exports apply to that shell;
+no dotenv loading was added. Never commit keys or filled .env files. The SDK is
+explicitly configured for the Developer API, rather than Vertex AI.
+
+| Variable | Default / bounds |
 | --- | --- |
-| `OPENAI_API_KEY` | Required to call OpenAI; keep in hosting secrets, never frontend code or Git. |
-| `GRAINSTORM_AI_MODEL` | Optional; defaults to `gpt-6-astra`. Set an available Responses/Structured Outputs model for your account. |
-| `GRAINSTORM_AI_TIMEOUT_SECONDS` | Optional; default 60, permitted range 1–180 seconds. |
+| GEMINI_API_KEY | Required for a new generation |
+| GRAINSTORM_AI_PROVIDER | gemini; other providers are rejected |
+| GRAINSTORM_GEMINI_MODEL | gemini-2.5-flash; configure a model available to your account |
+| GRAINSTORM_AI_TIMEOUT_SECONDS | 60; 1–180, overall generation including retry waits |
+| GRAINSTORM_AI_RETRY_ATTEMPTS | 0; 0–2 additional attempts for transient network/5xx failures |
+| GRAINSTORM_AI_MAX_CONCURRENT | 1; 1–8 simultaneous generations per API process |
+| GRAINSTORM_AI_MAX_CALLS_PER_ANALYSIS | 1; 1–3 generation invocations per normalized cache key |
+| GRAINSTORM_AI_MAX_INPUT_BYTES | 160000; 1024–160000 bytes of serialized compact context |
+| GRAINSTORM_AI_CACHE_DB | data/cache/intelligence.sqlite3; use writable persistent absolute path in deployment |
 
-The API uses `store=False`, a maximum 8,000 output tokens, SDK retries capped at two,
-and an overall timeout including retries. Each request incurs API usage; no live
-generation is required for tests. There is no report cache in this MVP.
-Restart the server after setting environment variables.
+Restart the API when changing configuration. Maximum output is 8,000 tokens.
+SDK retries are disabled; only the bounded application retries apply. 429 quota
+errors are not retried. Total possible HTTP attempts per cache key are bounded
+by calls-per-analysis times (1 + retry-attempts).
 
-## Endpoints and frontend flow
+The shared orchestrator limits concurrency in a single process. Use one API
+process for this MVP; global concurrency across hosts is not enforced. The cache
+uses SQLite transactions to reserve each analysis atomically. The stable key
+includes normalized context, configured model, prompt content/version and schema
+version. Identical analyses reuse the draft across restarts, then run validation
+again and receive fresh report metadata. Cache hits require no Gemini call.
+Token usage on a cached draft describes its original generation.
 
-1. Call the existing `POST /v1/rotation-advice`.
-2. Wait until its status is `complete` or `preliminary`.
-3. Send that JSON object inside `analysis` to `POST /api/v1/intelligence`.
-4. Render the executive summary, crop options, proposed schedule, resources, risks and actions.
-5. Check audit validation and `executive_summary.actionable` before presenting a plan as ready.
+Failed calls consume the configured call budget. Review the error before
+increasing the budget and restarting. A process killed during generation can
+leave a running reservation; inspect that record before clearing it. Never clear
+reservations while another process may be generating. There is no automatic
+expiry/retry of interrupted calls that could silently consume quota twice.
+The database contains farm context interpretations and should stay private.
+Cache cleanup, retention policies and administration UI remain future work.
+
+## API and frontend flow
+
+Endpoints remain:
+- `POST /v1/rotation-advice`: original agricultural analysis.
+- `POST /api/v1/intelligence`: accepts `{"analysis": <whole analysis response>}`.
+- `GET /api/v1/intelligence/schema`: complete final JSON Schema.
+- `/docs`: Swagger request and report schema.
+
+Wait for analysis status `complete` or `preliminary`; processing or missing
+calculation results are rejected before generation. Analyses are not persisted
+for identifier lookup; the content hash identifies the caller-provided object
+but does not authenticate it as a server-owned record.
 
 ```javascript
-const report = await fetch(`${backendUrl}/api/v1/intelligence`, {
+const response = await fetch(`${backendUrl}/api/v1/intelligence`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ analysis: rotationAdviceResponse })
 });
-if (!report.ok) throw new Error(await report.text());
-const decision = await report.json();
+if (!response.ok) throw new Error(await response.text());
+const decision = await response.json();
 ```
 
-Test with the downloaded rice response (no rewriting of that file):
-
 ```bash
-jq '{analysis: .}' /Users/shikharsharma/Downloads/response_1794674438310.json | \
-  curl --fail-with-body http://127.0.0.1:8000/api/v1/intelligence \
+jq '{analysis: .}' /Users/shikharsharma/Downloads/response_1794674438310.json |
+curl --fail-with-body http://127.0.0.1:8000/api/v1/intelligence \
   -H 'Content-Type: application/json' --data-binary @-
 ```
 
-`GET /api/v1/intelligence/schema` returns the full versioned JSON Schema. Swagger
-at `/docs` also exposes the request and `GrainStormDecisionReport` models.
+## Report schema and validation
 
-## Report contract
+`GrainStormDecisionReport` version 1.1.0 retains all nine report sections:
+metadata, field_context, executive_summary, crop_recommendations,
+planting_and_harvest_plan, resource_assessment, risk_assessment,
+agricultural_action_plan, audit_and_explainability.
 
-| Section | Fields and ownership |
-| --- | --- |
-| `metadata` | Python-owned schema version, content analysis ID, UUID report ID, UTC timestamp, actual model ID, planning dates, response ID and token counts. |
-| `field_context` | Python copies field ID/name, coordinates, hectares, horizon and irrigation status from the supplied analysis. |
-| `executive_summary` | AI decision, explanation, evidence and constraints; Python forces non-actionable status and revises a conflicting proceed decision. |
-| `crop_recommendations` | AI crop ID/rank/status, suitability interpretation, benefits, limitations, environmental/water/soil compatibility, evidence and missing inputs. |
-| `planting_and_harvest_plan` | Crop/date/duration proposals with constraints and assumptions; proposal validation status belongs to Python. |
-| `resource_assessment` | Rainfall, irrigation, water demand, moisture, soil, nutrients and environmental constraints, each with basis/status/evidence. |
-| `risk_assessment` | Risk ID, severity, description, evidence, consequences, mitigation and uncertainty. |
-| `agricultural_action_plan` | Priority, action, reason, evidence, farmer input and verification requirement. |
-| `audit_and_explainability` | Evidence catalog, assumptions, missing measurements, conflicts, checks, unresolved questions and limitations. Python owns validation status and scientific-validation flag. |
+Metadata now adds `ai_provider: "gemini"` and `ai_response_id`. The deprecated
+`openai_response_id` is retained as null. Model identity/token usage comes from
+the SDK; field facts, content/report IDs, timestamp and validation outcomes come
+from Python. Existing request shape and endpoint path are unchanged.
 
-Decision states: `proceed`, `proceed_with_conditions`, `revise_plan`, `insufficient_evidence`.
-Information basis: `measured`, `modeled`, `historical`, `assumed`, `unavailable`, `mixed`.
-Schedule states after validation: `backend_validated`, `requires_revision`, `rejected`, `unvalidated`.
-The generation schema only permits `proposed`; the model cannot certify a schedule.
-Report schema version is `1.0.0`. Extra generated fields and nonfinite floats are rejected.
+The model generates only `AIDecisionDraft`. Its schedule status can only be
+`proposed`. Python assigns backend_validated, unvalidated, rejected or
+requires_revision after checking dates, horizons, duration, complete-sequence
+matching, irrigation availability, backend infeasibility and water constraints.
+It checks valid crop IDs/ranks, evidence reference existence, structured numeric
+claims and units, and measured versus modeled information. Existing rice
+hydrology limitations, missing soil measurements, historical yield/suitability
+and generated-baseline uncertainty remain in the evidence and final audit.
 
-Example response fragment (illustrative, not a live model result):
+Extra fields and nonfinite floats are rejected. Reports remain non-actionable
+until further review; resolving evidence IDs cannot establish every free-text
+agronomic claim. Historical suitability is not crop-success probability.
+Proposed alternatives cannot be resimulated from saved analysis alone because
+the complete original configuration/weather is absent. Resubmit revised inputs
+to rotation-advice before relying on alternative dates.
 
-```json
-{
-  "executive_summary": {
-    "decision": "revise_plan",
-    "explanation": "The submitted schedule fails the supplied calendar and water constraints.",
-    "supporting_evidence": ["scenario.0.calendar", "scenario.0.water"],
-    "primary_constraints": ["Planting window", "Water deficit"],
-    "actionable": false
-  }
-}
-```
+The compact context keeps scientific constraints, units, source paths, nutrient
+budgets, rooting depth, rotations, water diagnostics and assumptions. When daily
+records exist it retains extreme dates, dry spells (rain below 1 mm/day), and all
+days at or above 25 mm rainfall. These are aggregation thresholds, not damage
+thresholds. Missing dates break dry spells. The ordinary rotation response omits
+daily weather records; seasonal totals cannot establish extremes or stage timing.
+That limitation is explicitly communicated. Input analysis is limited to 2 MB
+after JSON parsing; configure ingress body limits separately.
 
-## Context and validation rules
+## Controlled errors and tests
 
-Context retains source paths, units, crop calculations, nutrient budgets, rooting
-depths, rotation effects, water-model diagnostics, soil status, missing inputs,
-generated baselines and source limitations. Repetitive acquisition metadata and
-raw raster descriptors are removed. Available daily records are summarized with
-minimum/maximum dates, totals, dry spells (rain below 1 mm/day) and all days at
-or above 25 mm rainfall. Those thresholds describe aggregation, not crop-damage
-thresholds. Missing dates break dry spells. The context is capped at 160 KB;
-input JSON is capped at 2 MB after parsing. Configure ingress body-size limits too.
+- 422: malformed/incomplete analysis or oversized context.
+- 503: missing key, unsupported provider, invalid configuration or unavailable cache.
+- 429 gemini_quota_exhausted: check free-tier quotas in AI Studio; no automatic retry.
+- 429 analysis_call_limit: generation budget already consumed for this cache key.
+- 409 analysis_busy: identical generation running, or interrupted reservation.
+- 504 gemini_timeout: overall timeout reached.
+- 502 gemini_request_failed / gemini_incomplete / gemini_invalid_output: controlled upstream or output failure.
 
-The normal rotation response omits daily weather records. Consequently it cannot
-establish rainfall extremes or growth-stage timing from season totals; this
-limitation is included in context. Existing dual-coefficient stress diagnostics
-are retained when available.
-
-The validator checks supported crop IDs, duplicate ranks, reference existence,
-structured numerical claims against exact evidence values and units, measured
-versus modeled basis, date ordering, duration, horizon, matching complete scenario,
-backend calendar failure, water deficit and unconfirmed irrigation. Unknown
-alternatives remain unvalidated. Backend metadata and evidence are never taken
-from model output. Evidence context is explicitly treated as untrusted data in
-the model instructions.
-
-No free-text validator can establish that an agronomic statement is true merely
-because it cites an existing reference. The MVP therefore requires review for
-all reports and never claims scientific validation. Numeric claims in prose
-must be mirrored in the structured claim list, but exhaustive natural-language
-claim checking is not implemented. Do not treat a well-formed report as proof.
-
-Changed schedules cannot be recalculated from the saved response alone because
-the original complete weather/configuration is not retained. Resubmit those
-proposals to `/v1/rotation-advice` with verified inputs. No alternative is silently
-promoted to a validated recommendation. Public deployment needs authentication,
-rate limits and spending controls before exposing this paid endpoint.
-
-## Errors and tests
-
-- 422: incomplete/malformed/oversized analysis; no model call is made.
-- 503: missing key, unavailable SDK or invalid backend AI configuration.
-- 502: API/network/rate-limit failure, timeout, refusal, incomplete generation or invalid structured result.
-- Upstream quota exhaustion returns 503 with `detail.code: insufficient_quota` and
-  `retryable: false`; check API credits and project billing limits.
-- Temporary upstream throttling returns 429 with `detail.code: rate_limit_exceeded`
-  and `retryable: true`. Generation errors return a safe `{code, message, retryable}`
-  object under `detail`; raw upstream messages are never exposed.
-- 200: report returned, including rejected/revision-required proposals. Inspect the audit.
-
-Errors do not expose keys or upstream response bodies and never substitute invented advice.
+Generation errors use `detail: {code, message, retryable}`. Raw provider bodies
+and credentials are not exposed. No paid or deterministic fallback is silently
+returned as an AI result. The original agricultural endpoint remains available.
 
 ```bash
 python -m unittest tests.test_intelligence -v
 python -m unittest discover -s tests -q
 ```
 
-Tests use a representative rice fixture and mocked generation, including the real
-SDK over a mocked HTTP transport. No API key or network is needed.
+Tests mock Gemini, including the official SDK over httpx MockTransport. They do
+not make real Gemini calls or consume quota. Remaining work: live Gemini model
+evaluation (only with explicit authorization), trusted analysis snapshots,
+deterministic recalculation of alternatives, expert review, temporal evidence,
+paddy hydrology, access control, cache retention and distributed request limits.
 
-## Remaining work
-
-Persist authenticated analysis/configuration snapshots for ID-based retrieval and
-deterministic alternative simulation; add stage-resolved weather evidence;
-evaluate agronomic claims against expert-reviewed cases; validate paddy hydrology;
-add deployment authentication/rate limits and a bounded report cache; then run a
-live model evaluation with account access and approved spend.
-
-Official SDK pattern: [Structured Outputs with Responses](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses).
+References: [Google SDK](https://googleapis.github.io/python-genai/),
+[structured outputs](https://ai.google.dev/gemini-api/docs/structured-output),
+[pricing](https://ai.google.dev/gemini-api/docs/pricing).

@@ -35,9 +35,9 @@ completed, and add new tasks here before treating them as project commitments.
 
 ## Next priorities
 
-- [x] Add optional OpenAI Responses intelligence endpoint, compact deterministic evidence context, Pydantic draft/report schemas, independent proposal validation and offline SDK/API tests. See [intelligence API](intelligence.md).
+- [x] Add intelligence endpoint, compact deterministic evidence context, Pydantic draft/report schemas and independent proposal validation. Migrate primary provider to Gemini using google-genai, persistent draft caching, atomic call budgets, concurrency/input/timeout/retry limits and offline SDK/API tests. See [intelligence API](intelligence.md).
 - [ ] Persist trusted analysis/configuration snapshots and rerun deterministic calculations for AI-proposed alternatives.
-- [ ] Add expert-reviewed AI evaluations, stage-resolved weather evidence, authenticated access, spending controls and live OpenAI integration testing before public use.
+- [ ] Add expert-reviewed AI evaluations, stage-resolved weather evidence, authenticated access and live Gemini evaluation explicitly authorized against verified free-tier quota before public use.
 
 - [x] Connect processed IMERG rainfall to planner weather and `POST /v1/plans`, retaining ERA5 ET0, source metadata, and strict missing-date handling. Prepared the July 19–August 1 sample and checked merge/API behavior.
 - [x] Add a shared location/date context API and SQLite cache: source/product/day keys, coverage and provenance, ERA5/POWER point fetches for missing intervals, and metadata-checked IMERG/SMAP imports. Connect the planner through `weather_source.provider: imerg_era5`.

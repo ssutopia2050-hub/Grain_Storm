@@ -1,4 +1,4 @@
-"""Tests for compact AI context, OpenAI handling and independent validation."""
+"""Tests for compact AI context, Gemini handling and independent validation."""
 import json
 import unittest
 from copy import deepcopy
@@ -12,10 +12,9 @@ from fastapi.testclient import TestClient
 
 from grainstorm.api import app, get_intelligence_orchestrator
 from grainstorm.intelligence.context_builder import ContextBuildError, build_ai_context
-from grainstorm.intelligence.openai_engine import (
+from grainstorm.intelligence.common import (
     GenerationResult,
     IntelligenceGenerationError,
-    OpenAIDecisionEngine,
 )
 from grainstorm.intelligence.orchestrator import IntelligenceOrchestrator
 from grainstorm.intelligence.schemas import AIDecisionDraft, ValidationStatus
@@ -239,76 +238,154 @@ class ValidatorTests(unittest.TestCase):
                             for item in report.audit_and_explainability.conflicts_between_ai_and_backend))
 
 
-class OpenAIEngineTests(unittest.IsolatedAsyncioTestCase):
-    async def test_quota_and_transient_rate_limit_have_distinct_safe_codes(self):
-        from openai import RateLimitError
-        for code, expected_status, retryable in (
-            ("insufficient_quota", 503, False), ("rate_limit_exceeded", 429, True),
-        ):
-            error = RateLimitError("secret upstream detail", response=httpx.Response(
-                429, request=httpx.Request("POST", "https://api.openai.com/v1/responses")),
-                body={"code": code, "message": "secret upstream detail"})
-            client = SimpleNamespace(responses=SimpleNamespace(parse=AsyncMock(side_effect=error)))
+class GeminiEngineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_provider_errors_are_distinct_and_sanitized(self):
+        from google.genai.errors import ClientError, ServerError
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
+        for code, expected in ((400, "gemini_invalid_request"), (401, "gemini_invalid_key"),
+                               (403, "gemini_access_denied"), (404, "gemini_model_unavailable"),
+                               (503, "gemini_service_unavailable")):
+            error_type = ServerError if code >= 500 else ClientError
+            client = self.client(error=error_type(code, {"error": {"message": "private-key-and-url"}}))
             with self.assertRaises(IntelligenceGenerationError) as caught:
-                await OpenAIDecisionEngine(client=client).generate({})
-            self.assertEqual(caught.exception.code, code)
-            self.assertEqual(caught.exception.status_code, expected_status)
-            self.assertEqual(caught.exception.retryable, retryable)
-            self.assertNotIn("secret", str(caught.exception))
+                await GeminiDecisionEngine(client=client).generate({})
+            self.assertEqual(caught.exception.code, expected)
+            self.assertNotIn("private-key-and-url", str(caught.exception))
 
-    async def test_rate_limit_does_not_leak_upstream_body(self):
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key="test-key", max_retries=0,
-                             http_client=httpx.AsyncClient(transport=httpx.MockTransport(
-                                 lambda request: httpx.Response(429, json={"error": {"message": "private-upstream-detail"}}))))
-        with self.assertRaises(IntelligenceGenerationError) as error:
-            await OpenAIDecisionEngine(client=client).generate({})
-        self.assertNotIn("private-upstream-detail", str(error.exception))
+    async def test_duplicate_requests_generate_once_and_model_changes_cache_key(self):
+        import asyncio
+        import tempfile
+        from grainstorm.intelligence.cache import DecisionCache
+        async def generate(context):
+            await asyncio.sleep(0.01)
+            return GenerationResult(ai_draft(), "gemini-test", "id", {})
+        with tempfile.TemporaryDirectory() as directory:
+            cache = DecisionCache(directory + "/ai.sqlite3")
+            engine = SimpleNamespace(model="gemini-test", generate=AsyncMock(side_effect=generate))
+            orchestrator = IntelligenceOrchestrator(engine, cache)
+            await asyncio.gather(orchestrator.analyze(rice_analysis()), orchestrator.analyze(rice_analysis()))
+            self.assertEqual(engine.generate.await_count, 1)
+            engine.model = "another-model"
+            await orchestrator.analyze(rice_analysis())
+            self.assertEqual(engine.generate.await_count, 2)
 
-    async def test_real_sdk_transport_and_structured_parsing(self):
-        from openai import AsyncOpenAI
+    async def test_configured_retry_is_bounded(self):
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
+        with patch.dict("os.environ", {"GRAINSTORM_AI_RETRY_ATTEMPTS": "1"}):
+            client = self.client()
+            client.models.generate_content.side_effect = [OSError("offline"), self.response()]
+            await GeminiDecisionEngine(client=client).generate({})
+            self.assertEqual(client.models.generate_content.await_count, 2)
+
+    async def test_unsupported_provider_and_model_config(self):
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
+        from grainstorm.intelligence.common import IntelligenceConfigurationError
+        with patch.dict("os.environ", {"GRAINSTORM_AI_PROVIDER": "openai"}):
+            with self.assertRaises(IntelligenceConfigurationError):
+                GeminiDecisionEngine()
+        with patch.dict("os.environ", {"GRAINSTORM_GEMINI_MODEL": "my-gemini-model"}):
+            self.assertEqual(GeminiDecisionEngine().model, "my-gemini-model")
+
+    async def test_official_sdk_schema_and_response_transport(self):
+        from google import genai
+        from google.genai import types
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
         def handler(request):
-            payload = json.loads(request.content)
-            self.assertEqual(payload["text"]["format"]["type"], "json_schema")
-            self.assertFalse(payload["store"])
+            body = json.loads(request.content)
+            self.assertEqual(body["generationConfig"]["responseMimeType"], "application/json")
+            self.assertIn("responseSchema", body["generationConfig"])
             return httpx.Response(200, json={
-                "id": "resp_mock", "created_at": 0, "object": "response", "status": "completed",
-                "model": "test-model", "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
-                "output": [{"id": "msg_mock", "type": "message", "role": "assistant", "status": "completed",
-                            "content": [{"type": "output_text", "text": ai_draft().model_dump_json(), "annotations": []}]}],
+                "candidates": [{"content": {"role": "model", "parts": [{"text": ai_draft().model_dump_json()}]}, "finishReason": "STOP"}],
+                "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 20, "totalTokenCount": 30},
+                "modelVersion": "gemini-test", "responseId": "mock-response",
             })
-        client = AsyncOpenAI(api_key="test-key", http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-        result = await OpenAIDecisionEngine(client=client, model="test-model").generate({})
-        self.assertEqual(result.response_id, "resp_mock")
+        client = genai.Client(api_key="fake-test-key", vertexai=False,
+            http_options=types.HttpOptions(async_client_args={"transport": httpx.MockTransport(handler)})).aio
+        try:
+            result = await GeminiDecisionEngine(client=client).generate({})
+            self.assertEqual(result.token_usage["total_tokens"], 30)
+        finally:
+            await client.aclose()
 
-    async def test_missing_parsed_output_and_invalid_output_fail(self):
-        for parsed in (None, {"invalid": True}):
-            client = SimpleNamespace(responses=SimpleNamespace(parse=AsyncMock(return_value=SimpleNamespace(
-                status="completed", output_parsed=parsed))))
-            with self.assertRaises(IntelligenceGenerationError):
-                await OpenAIDecisionEngine(client=client).generate({})
+    def client(self, response=None, error=None):
+        return SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response, side_effect=error)))
 
-    async def test_valid_structured_response(self):
-        response = SimpleNamespace(
-            status="completed", output_parsed=ai_draft(), id="resp_1",
-            usage=SimpleNamespace(input_tokens=100, output_tokens=50, total_tokens=150),
-        )
-        client = SimpleNamespace(responses=SimpleNamespace(parse=AsyncMock(return_value=response)))
-        result = await OpenAIDecisionEngine(client=client, model="test-model").generate({"evidence_catalog": []})
-        self.assertEqual(result.response_id, "resp_1")
+    def response(self, **kwargs):
+        values = dict(text=ai_draft().model_dump_json(), candidates=[SimpleNamespace(finish_reason="STOP")],
+                      model_version="gemini-test", response_id="gemini-response",
+                      usage_metadata=SimpleNamespace(prompt_token_count=100, candidates_token_count=50, total_token_count=150))
+        values.update(kwargs)
+        return SimpleNamespace(**values)
+
+    async def test_request_schema_model_usage(self):
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
+        client = self.client(self.response())
+        result = await GeminiDecisionEngine(client=client, model="gemini-test").generate({"evidence_catalog": []})
         self.assertEqual(result.token_usage["total_tokens"], 150)
-        client.responses.parse.assert_awaited_once()
+        call = client.models.generate_content.call_args.kwargs
+        self.assertEqual(call["model"], "gemini-test")
+        self.assertEqual(call["config"].response_mime_type, "application/json")
+        self.assertIs(call["config"].response_schema, AIDecisionDraft)
 
-    async def test_api_failure_is_explicit(self):
-        client = SimpleNamespace(responses=SimpleNamespace(parse=AsyncMock(side_effect=TimeoutError())))
-        with self.assertRaises(IntelligenceGenerationError):
-            await OpenAIDecisionEngine(client=client).generate({})
+    async def test_invalid_and_incomplete(self):
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
+        for response in (self.response(text="bad json"), self.response(candidates=[]),
+                         self.response(candidates=[SimpleNamespace(finish_reason="MAX_TOKENS")])):
+            with self.assertRaises(IntelligenceGenerationError):
+                await GeminiDecisionEngine(client=self.client(response)).generate({})
 
-    async def test_incomplete_model_response_is_explicit(self):
-        response = SimpleNamespace(status="incomplete", output_parsed=None, id="resp_2", usage=None)
-        client = SimpleNamespace(responses=SimpleNamespace(parse=AsyncMock(return_value=response)))
-        with self.assertRaises(IntelligenceGenerationError):
-            await OpenAIDecisionEngine(client=client).generate({})
+    async def test_quota_and_network(self):
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
+        from google.genai.errors import ClientError
+        for error, expected in ((ClientError(429, {"error": {"message": "secret"}}), "gemini_quota_exhausted"),
+                                (OSError("secret"), "gemini_request_failed")):
+            client = self.client(error=error)
+            with self.assertRaises(IntelligenceGenerationError) as caught:
+                await GeminiDecisionEngine(client=client).generate({})
+            self.assertEqual(caught.exception.code, expected)
+            self.assertNotIn("secret", str(caught.exception))
+            self.assertEqual(client.models.generate_content.await_count, 1)
+
+    async def test_missing_credentials(self):
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
+        from grainstorm.intelligence.common import IntelligenceConfigurationError
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}):
+            with self.assertRaises(IntelligenceConfigurationError):
+                await GeminiDecisionEngine().generate({})
+
+    async def test_timeout_and_input_limit(self):
+        import asyncio
+        from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine
+        async def slow(**kwargs):
+            await asyncio.sleep(10)
+        client = self.client()
+        client.models.generate_content.side_effect = slow
+        with self.assertRaises(IntelligenceGenerationError) as caught:
+            await GeminiDecisionEngine(client=client, timeout_seconds=1).generate({})
+        self.assertEqual(caught.exception.code, "gemini_timeout")
+        with patch.dict("os.environ", {"GRAINSTORM_AI_MAX_INPUT_BYTES": "1024"}):
+            client = self.client()
+            with self.assertRaises(IntelligenceGenerationError):
+                await GeminiDecisionEngine(client=client).generate({"large": "x" * 2000})
+            client.models.generate_content.assert_not_awaited()
+
+    async def test_cache_persists_and_call_budget(self):
+        import tempfile
+        from pathlib import Path
+        from grainstorm.intelligence.cache import DecisionCache
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "decisions.sqlite3")
+            engine = SimpleNamespace(model="gemini-test", generate=AsyncMock(return_value=GenerationResult(
+                ai_draft(), "gemini-test", "id", {})))
+            await IntelligenceOrchestrator(engine, DecisionCache(path)).analyze(rice_analysis())
+            await IntelligenceOrchestrator(engine, DecisionCache(path)).analyze(rice_analysis())
+            self.assertEqual(engine.generate.await_count, 1)
+            cache = DecisionCache(path)
+            cache.reserve("failed", 1)
+            cache.finish("failed", None)
+            with self.assertRaises(IntelligenceGenerationError) as caught:
+                cache.reserve("failed", 1)
+            self.assertEqual(caught.exception.code, "analysis_call_limit")
 
 
 class OrchestratorAndApiTests(unittest.IsolatedAsyncioTestCase):
@@ -323,9 +400,16 @@ class OrchestratorAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(response.json()["detail"]["retryable"])
 
     async def test_invalid_analysis_and_unconfigured_ai_http_errors(self):
+        import tempfile
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        settings = patch.dict("os.environ", {"GRAINSTORM_AI_CACHE_DB": directory.name + "/ai.sqlite3"})
+        settings.start()
+        self.addCleanup(settings.stop)
+        self.addCleanup(lambda: delattr(app.state, "intelligence_orchestrator"))
         client = TestClient(app)
         self.assertEqual(client.post("/api/v1/intelligence", json={"analysis": {}}).status_code, 422)
-        with patch.dict("os.environ", {"OPENAI_API_KEY": ""}):
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}):
             self.assertEqual(client.post("/api/v1/intelligence", json={"analysis": rice_analysis()}).status_code, 503)
 
     async def test_final_report_assembly(self):
@@ -346,7 +430,7 @@ class OrchestratorAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(app.dependency_overrides.clear)
         response = TestClient(app).post("/api/v1/intelligence", json={"analysis": rice_analysis()})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["metadata"]["schema_version"], "1.0.0")
+        self.assertEqual(response.json()["metadata"]["schema_version"], "1.1.0")
 
 
 if __name__ == "__main__":
