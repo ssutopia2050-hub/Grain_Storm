@@ -191,6 +191,7 @@ def _build_ai_context(analysis: dict[str, Any]) -> dict[str, Any]:
             "matched_planting_window": crop.get("matched_planting_window"),
             "gap_before_days": crop.get("gap_before_days"),
             "root_depth_m": crop.get("root_depth_m"),
+            "stage_water_assessment": crop.get("stage_water_assessment", []),
         } for crop in scenario["sequence"]]
         add(f"{prefix}.calendar", f"calculation.report.scenarios.{index}", "modeled", {
             "name": scenario["name"], "status": scenario.get("calendar_status"),
@@ -221,6 +222,7 @@ def _build_ai_context(analysis: dict[str, Any]) -> dict[str, Any]:
             "economics": evidence[-1]["value"],
             "rotation_health_score": scenario.get("pest_disease_rotation_score"),
             "rotation_effects": scenario.get("rotation_effects", []),
+            "fallow_periods": scenario.get("fallow_periods", []),
             "evidence_references": [f"{prefix}.calendar", f"{prefix}.water",
                                     f"{prefix}.nutrients", f"{prefix}.economics"],
         })
@@ -265,6 +267,7 @@ def _build_ai_context(analysis: dict[str, Any]) -> dict[str, Any]:
         "environment": environment_summaries,
         "temporal_evidence_limit": "Daily rainfall and growth-stage stress timing are unavailable when absent from this analysis; do not infer extremes from season totals.",
         "weather_metadata": (analysis.get("calculation") or {}).get("weather_metadata"),
+        "temporal_context": (analysis.get("calculation") or {}).get("temporal_context"),
         "planner_limits": report.get("assumptions_and_limits", []),
         "input_quality": {
             "generated_count": (analysis.get("input_resolution") or {}).get("generated_count", 0),
@@ -282,7 +285,7 @@ def build_ai_context(analysis: dict[str, Any]) -> dict[str, Any]:
         encoded = json.dumps(analysis, allow_nan=False)
         if len(encoded.encode()) > 2_000_000:
             raise ContextBuildError("Analysis exceeds the 2 MB input limit.")
-        context = _build_ai_context(analysis)
+        context = _build_ai_context(json.loads(encoded))
         if context["field"]["planning_horizon_days"] <= 0 or context["field"]["area_ha"] <= 0:
             raise ContextBuildError("Invalid field area or planning horizon.")
         if len(json.dumps(context).encode()) > 160_000:

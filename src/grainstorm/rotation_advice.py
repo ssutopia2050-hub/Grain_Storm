@@ -18,6 +18,7 @@ from grainstorm.sources.gaez_yield import fetch_location_yield_baselines
 from grainstorm.sources.ssurgo import fetch_us_soil_context
 from grainstorm.sources.forecast import fetch_daily_forecast, MAX_FORECAST_DAYS
 from grainstorm.input_resolver import resolve_rotation_inputs
+from grainstorm.intelligence.season import temporal_summary
 
 
 def _scaled_stages(stage_days: list[int], duration: int) -> list[int]:
@@ -475,6 +476,8 @@ def _aggregate_zone_reports(zone_reports: list[dict[str, Any]], ranking: Any,
         for crop_index in range(len(parts[0]["sequence"])):
             crops = [part["sequence"][crop_index] for part in parts]
             crop = deepcopy(crops[0])
+            # Stage water varies by zone: avoid reporting the first zone as field data.
+            crop["stage_water_assessment"] = []
             for key in (
                 "rain_mm", "irrigation_mm", "effective_irrigation_mm", "crop_water_need_mm",
                 "effective_root_zone_capacity_mm", "unmet_water_mm", "soil_water_start_mm",
@@ -663,8 +666,11 @@ def build_rotation_advice(data: dict[str, Any], context_service: ContextService)
         ],
     }
 
+    padding = int(data.get("context_padding_days", 0))
+    context_start, context_end = start - timedelta(days=padding), end + timedelta(days=padding)
+    response["request"]["context_padding_days"] = padding
     environmental_context, weather_rows, weather_metadata, environment_ready = _environment(
-        data, context_service, latitude, longitude, start, end
+        data, context_service, latitude, longitude, context_start, context_end
     )
     response["environmental_context"] = environmental_context
 
@@ -775,6 +781,7 @@ def build_rotation_advice(data: dict[str, Any], context_service: ContextService)
         ]
     response.update({"status": "preliminary" if input_resolution and input_resolution["critical_generated_count"] else "complete",
                      "missing_inputs": [],
-                     "calculation": {"report": report, "weather_metadata": weather_metadata},
+                     "calculation": {"report": report, "weather_metadata": weather_metadata,
+                                     "temporal_context": temporal_summary(weather_rows, weather_metadata)},
                      "advice": _advice(report, input_resolution, response["crop_analysis"])})
     return 200, response

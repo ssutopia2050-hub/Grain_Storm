@@ -293,4 +293,6 @@ def validate_ai_draft(*, draft: AIDecisionDraft, context: dict[str, Any],
                             "yield_forecast_status": "historical_benchmark_only",
                             "unknown_economics": "Prices/costs are not inferred; margin stays null when incomplete."},
         calendar_alternatives=context.get("planning_estimates", {}).get("calendar_alternatives", []),
+        farm_plan=context.get("farm_plan", {}),
+        planning_guidance=draft.planning_guidance,
     )

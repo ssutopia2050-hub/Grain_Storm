@@ -229,6 +229,7 @@ class RotationAdviceRequest(BaseModel):
     weather_scenario: list[dict[str, Any]] | None = None
     management_zones: list[dict[str, Any]] | None = None
     autofill_missing: bool = True
+    context_padding_days: int = Field(default=0, ge=0, le=60)
 
     @model_validator(mode="after")
     def validate_rotation_request(self):

@@ -35,6 +35,9 @@ completed, and add new tasks here before treating them as project commitments.
 
 ## Next priorities
 
+- [x] Add v1.3 six-section farm planning, modeled stage water diagnostics, temporal dry-spell/later-rain summaries, rainfall/ET0 screening windows, optional surrounding-date acquisition and explicit uncalibrated harvest/yield probability fields.
+- [ ] Calibrate harvest/yield probabilities against observations; run crop-specific temperature/frost/date-search simulations and area-weight stage water for management zones.
+
 - [x] Add v1.2 AI sequence analysis, reproducible historical production benchmarks, explicit yield sensitivity scenarios, whole-field resource estimates, calendar-only alternative planning and scalar numerical-claim templates with detailed validation diagnostics.
 
 - [x] Add intelligence endpoint, compact deterministic evidence context, Pydantic draft/report schemas and independent proposal validation. Migrate primary provider to Gemini using google-genai, persistent draft caching, atomic call budgets, concurrency/input/timeout/retry limits and offline SDK/API tests. See [intelligence API](intelligence.md).

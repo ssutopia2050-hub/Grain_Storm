@@ -826,6 +826,7 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                 if dual_config is not None else None
             )
             dual_totals = {"kcb": 0.0, "ks": 0.0, "ke": 0.0, "stress_days": 0}
+            stage_water = {}
 
             for day_index in range(duration):
                 day = crop_start + timedelta(days=day_index)
@@ -922,6 +923,25 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                 water_mm -= supplied
                 crop_unmet += daily_need - supplied
                 unmet_water_mm += daily_need - supplied
+                # Four-stage labels are model stages, not observed phenology.
+                offset, stage = 0, 0
+                for index, length in enumerate(stage_days or [duration]):
+                    stage = index
+                    if day_index < offset + length:
+                        break
+                    offset += length
+                label = ["initial", "development", "mid_season", "late_season"][min(stage, 3)]
+                if not stage_days:
+                    label = "whole_crop"
+                bucket = stage_water.setdefault(label, {"stage": label, "start_date": day.isoformat(),
+                    "end_date": day.isoformat(), "rain_mm": 0.0, "crop_demand_mm": 0.0,
+                    "irrigation_withdrawal_mm": 0.0, "unmet_water_mm": 0.0, "water_shortage_days": 0})
+                bucket["end_date"] = day.isoformat()
+                bucket["rain_mm"] += rain
+                bucket["crop_demand_mm"] += daily_need
+                bucket["irrigation_withdrawal_mm"] += withdrawal
+                bucket["unmet_water_mm"] += daily_need - supplied
+                bucket["water_shortage_days"] += int(daily_need - supplied > 1e-8)
 
             crop_water_end = water_mm
             water_mm = min(capacity, inaccessible_water + crop_water_end)
@@ -1002,6 +1022,8 @@ def simulate_scenarios(config: dict[str, Any]) -> dict[str, Any]:
                 "planting_window_status": planting["status"],
                 "matched_planting_window": planting["matched_window"],
                 "duration_days": duration,
+                "stage_water_assessment": [{key: round(value, 3) if isinstance(value, float) else value
+                    for key, value in bucket.items()} for bucket in stage_water.values()],
                 "rain_mm": round(crop_rain, 2),
                 "irrigation_mm": round(crop_irrigation, 2),
                 "effective_irrigation_mm": round(crop_effective_irrigation, 2),

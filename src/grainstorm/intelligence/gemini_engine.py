@@ -65,6 +65,7 @@ class GeminiDecisionEngine:
             raise IntelligenceConfigurationError("AI timeout must be between 1 and 180 seconds.")
         self.retries = bounded_setting("GRAINSTORM_AI_RETRY_ATTEMPTS", 0, 0, 2)
         self.max_input = bounded_setting("GRAINSTORM_AI_MAX_INPUT_BYTES", 160000, 1024, 160000)
+        self.max_output = bounded_setting("GRAINSTORM_AI_MAX_OUTPUT_TOKENS", 12000, 1000, 16000)
         self._client = client
 
     async def generate(self, context: dict) -> GenerationResult:
@@ -83,7 +84,7 @@ class GeminiDecisionEngine:
             system_instruction=SYSTEM_INSTRUCTIONS,
             response_mime_type="application/json",
             response_json_schema=AIDecisionDraft.model_json_schema(),
-            max_output_tokens=8000,
+            max_output_tokens=self.max_output,
         )
 
         async def request():

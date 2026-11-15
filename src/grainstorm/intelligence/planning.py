@@ -1,5 +1,6 @@
 """Reproducible planning estimates; never current-season yield predictions."""
 from datetime import date, timedelta
+from grainstorm.intelligence.season import build_farm_plan
 
 
 def enrich_context(context):
@@ -83,9 +84,15 @@ def enrich_context(context):
             "status": "calendar_only_proposal" if complete else "no_complete_sequence_within_supplied_windows",
             "limitations": ["GAEZ windows are provisional unless locally confirmed.", "New dates need water/nutrient/economic resimulation."]})
     result = {"scenario_estimates": estimates, "calendar_alternatives": alternatives}
+    for scenario in context["scenarios"]:
+        economics = scenario.get("economics")
+        if economics and economics.get("status") != "complete":
+            for key in ("gross_crop_revenue_for_field", "additional_income_for_field", "crop_costs_for_field", "irrigation_cost_for_field", "total_cost_for_field"):
+                economics[key] = None
     context["planning_estimates"] = result
     context["evidence_catalog"].append({"id": "planning.estimates", "source_path": "derived_by_python", "basis": "modeled", "value": result, "units": None, "source": "Grain Storm arithmetic and calendar screening"})
     context["evidence_catalog"].append({"id": "field.irrigation", "source_path": "calculation.report.field.irrigation", "basis": "assumed", "value": context["field"].get("irrigation", {}), "units": None, "source": "Simulation settings; physical availability unconfirmed"})
+    context["evidence_catalog"].append({"id": "input.quality", "source_path": "input_resolution", "basis": "assumed", "value": context["input_quality"], "units": None, "source": "Backend generated-input assessment"})
     if context["field"]["irrigation_status"] == "unavailable":
         context["field"]["irrigation_status"] = "unknown"
     paths = []
@@ -106,4 +113,5 @@ def enrich_context(context):
                 e["value"]["baseline"] = {**(e["value"].get("baseline") or {}), **override}
         visit(e["value"], [], e)
     context["allowed_numerical_claims"] = paths
+    context["farm_plan"] = build_farm_plan(context)
     return context

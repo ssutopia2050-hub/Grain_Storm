@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 
 
 class StrictModel(BaseModel):
@@ -149,6 +149,15 @@ class SequenceAnalysis(StrictModel):
     evidence_references: list[str]
 
 
+class PlanningGuidance(StrictModel):
+    favorable_period_reasoning: str
+    rotation_cycle_reasoning: str
+    growth_and_harvest_reasoning: str
+    harvest_yield_uncertainty: str
+    stage_irrigation_and_gap_actions: list[str]
+    dry_spell_and_later_rain_actions: list[str]
+
+
 class AIDecisionDraft(StrictModel):
     """Model-owned interpretation. It deliberately excludes validation metadata."""
 
@@ -164,6 +173,7 @@ class AIDecisionDraft(StrictModel):
     limitations: list[str]
     numerical_claims: list[NumericalClaim] = Field(default_factory=list)
     sequence_analysis: list[SequenceAnalysis] = Field(default_factory=list)
+    planning_guidance: PlanningGuidance | None = None
 
 
 class ReportMetadata(StrictModel):
@@ -224,3 +234,5 @@ class GrainStormDecisionReport(StrictModel):
     sequence_analysis: list[SequenceAnalysis]
     estimated_outcomes: dict
     calendar_alternatives: list[dict]
+    farm_plan: dict
+    planning_guidance: PlanningGuidance | None

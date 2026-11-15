@@ -141,6 +141,25 @@ def ai_draft(*, decision="revise_plan", evidence="scenario.0.calendar",
 
 
 class ContextBuilderTests(unittest.TestCase):
+    def test_six_question_plan_does_not_invent_probabilities_or_stage_water(self):
+        from grainstorm.intelligence.planning import enrich_context
+        context = enrich_context(build_ai_context(rice_analysis()))
+        plan = context["farm_plan"]
+        self.assertEqual(len(plan), 6)
+        self.assertIsNone(plan["harvest_yield_assessment"]["harvest_success_probability"])
+        stages = plan["growth_and_harvest_stages"][0]["stages"]
+        self.assertEqual(len(stages), 4)
+        self.assertIsNone(stages[0]["crop_demand_mm"])
+        self.assertEqual(plan["growth_and_harvest_stages"][0]["planned_maturity_date"], "2024-08-28")
+
+    def test_dry_spell_subsequent_rain_is_labeled_hindsight(self):
+        from grainstorm.intelligence.season import temporal_summary
+        rows = [{"date": f"2024-01-0{i}", "rain_mm": 0 if i <= 3 else 10, "et0_mm": 2} for i in range(1, 7)]
+        summary = temporal_summary(rows, {"data_kind": "historical"})
+        self.assertEqual(summary["dry_spells"][0]["days"], 3)
+        self.assertEqual(summary["dry_spells"][0]["rain_in_next_3_days_mm"], 30)
+        self.assertIn("never assumed known in advance", summary["dry_spells"][0]["subsequent_rain_basis"])
+
     def test_planning_estimates_include_benchmarks_and_explicit_assumptions(self):
         from grainstorm.intelligence.planning import enrich_context
         context = enrich_context(build_ai_context(rice_analysis()))
@@ -468,7 +487,7 @@ class OrchestratorAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(app.dependency_overrides.clear)
         response = TestClient(app).post("/api/v1/intelligence", json={"analysis": rice_analysis()})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["metadata"]["schema_version"], "1.2.0")
+        self.assertEqual(response.json()["metadata"]["schema_version"], "1.3.0")
 
 
 if __name__ == "__main__":

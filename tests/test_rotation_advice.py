@@ -102,6 +102,12 @@ class RotationAdviceTests(unittest.TestCase):
         status, response = build_rotation_advice(request, FakeContext())
         self.assertEqual(status, 200)
         self.assertEqual(response["status"], "complete")
+        crop_result = response["calculation"]["report"]["scenarios"][0]["sequence"][0]
+        stages = crop_result["stage_water_assessment"]
+        self.assertEqual(len(stages), 4)
+        self.assertAlmostEqual(sum(s["crop_demand_mm"] for s in stages), crop_result["crop_water_need_mm"], places=2)
+        self.assertAlmostEqual(sum(s["unmet_water_mm"] for s in stages), crop_result["unmet_water_mm"], places=2)
+        self.assertIn("dry_spells", response["calculation"]["temporal_context"])
         self.assertIsNotNone(response["calculation"])
         self.assertEqual(response["advice"]["scenarios"][0]["steps"][0]["crop_id"], "grain_maize")
         self.assertIn("decision_summary", response["advice"])

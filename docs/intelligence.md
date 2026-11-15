@@ -59,9 +59,10 @@ explicitly configured for the Developer API, rather than Vertex AI.
 | GRAINSTORM_AI_MAX_CONCURRENT | 1; 1–8 simultaneous generations per API process |
 | GRAINSTORM_AI_MAX_CALLS_PER_ANALYSIS | 1; 1–3 generation invocations per normalized cache key |
 | GRAINSTORM_AI_MAX_INPUT_BYTES | 160000; 1024–160000 bytes of serialized compact context |
+| GRAINSTORM_AI_MAX_OUTPUT_TOKENS | 12000; 1000–16000, including provider reasoning/output budget |
 | GRAINSTORM_AI_CACHE_DB | data/cache/intelligence.sqlite3; use writable persistent absolute path in deployment |
 
-Restart the API when changing configuration. Maximum output is 8,000 tokens.
+Restart the API when changing configuration. Default maximum output is 12,000 tokens.
 SDK retries are disabled; only the bounded application retries apply. 429 quota
 errors are not retried. Total possible HTTP attempts per cache key are bounded
 by calls-per-analysis times (1 + retry-attempts).
@@ -113,7 +114,7 @@ curl --fail-with-body http://127.0.0.1:8000/api/v1/intelligence \
 
 ## Report schema and validation
 
-`GrainStormDecisionReport` version 1.2.0 retains all nine report sections:
+`GrainStormDecisionReport` version 1.3.0 retains all nine report sections:
 metadata, field_context, executive_summary, crop_recommendations,
 planting_and_harvest_plan, resource_assessment, risk_assessment,
 agricultural_action_plan, audit_and_explainability.
@@ -153,6 +154,29 @@ and generated-baseline uncertainty remain in the evidence and final audit.
 Extra fields and nonfinite floats are rejected. Reports remain non-actionable
 until further review; resolving evidence IDs cannot establish every free-text
 agronomic claim. Historical suitability is not crop-success probability.
+
+Version 1.3 adds `farm_plan` with six frontend sections: `favorable_periods`,
+`rotation_scenarios`, `growth_and_harvest_stages`, `harvest_yield_assessment`,
+`irrigation_by_stage_and_gap`, and `dry_spell_plan`. Gemini supplies complementary
+`planning_guidance` addressing each question. Fresh rotation analyses now include
+stage water totals calculated in the daily simulator (initial/development/mid/late),
+and a temporal summary of dry spells, subsequent rain, and 14-day rainfall-minus-ET0
+screening windows. These windows do not establish optimal crop dates or validate
+temperature/frost constraints. No crop failure/yield-loss probability is inferred.
+Three harvest-date sensitivity options (maturity minus 7 days, maturity, plus 7)
+have unknown yields/probabilities pending variety/grain-moisture/weather validation.
+They are comparisons for review, not instructions to harvest an immature crop.
+
+For surrounding date coverage, add `context_padding_days: 14` to the original
+rotation-advice request (0 default; maximum 60). Acquisition uses that expanded
+range and may enqueue more satellite jobs. The planning horizon itself is unchanged.
+Future/mixed periods still obey the operational forecast limit. Caller weather
+scenarios must cover the padded range exactly. Temporal evidence explicitly labels
+data kind and bounds: subsequent historical rain is hindsight, not forecast advice.
+Stage water cannot be reconstructed from old season totals; old analyses instead
+receive provisional stage dates scaled from FAO profiles with unknown stage water.
+Zone-aggregated analyses omit stage water until a correct area-weighted stage
+aggregation is available; they never inherit one zone's quantities as whole-field values.
 Proposed alternatives cannot be resimulated from saved analysis alone because
 the complete original configuration/weather is absent. Resubmit revised inputs
 to rotation-advice before relying on alternative dates.
