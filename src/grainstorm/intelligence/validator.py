@@ -39,6 +39,9 @@ def _all_evidence_references(draft: AIDecisionDraft) -> set[str]:
         references.update(risk.supporting_evidence)
     for action in draft.agricultural_action_plan:
         references.update(action.supporting_evidence)
+    for sequence in draft.sequence_analysis:
+        references.update(sequence.evidence_references)
+    references.update(claim.evidence_reference for claim in draft.numerical_claims)
     return references
 
 
@@ -99,7 +102,7 @@ def validate_ai_draft(*, draft: AIDecisionDraft, context: dict[str, Any],
         if not valid:
             hard_failure = True
             checks.append(ValidationCheck(check="numerical_consistency", status="failed",
-                                          message=f"Numerical claim does not match {claim.evidence_reference}."))
+                                          message=f"Claim {claim.evidence_reference} at path {claim.value_path}: supplied value={claim.value}, units={claim.units}; resolved value={value}, catalog units={source['units'] if source else None}. Paths are relative to evidence.value, not the full analysis."))
     if not used_evidence or any(not crop.evidence_references for crop in draft.crop_recommendations):
         revision_required = True
         checks.append(ValidationCheck(check="evidence_coverage", status="warning",
@@ -117,6 +120,10 @@ def validate_ai_draft(*, draft: AIDecisionDraft, context: dict[str, Any],
         if crop.crop_id not in evaluated_crops and crop.recommendation_status == "recommended":
             revision_required = True
             conflicts.append(f"{crop.crop_id} lacks location-specific evaluation and cannot be recommended yet.")
+    known_scenarios = {s["name"] for s in context["scenarios"]}
+    if any(s.scenario_name not in known_scenarios for s in draft.sequence_analysis):
+        hard_failure = True
+        checks.append(ValidationCheck(check="scenario_names", status="failed", message="AI compared an unevaluated scenario as though calculated."))
     ranks = [crop.ranking for crop in draft.crop_recommendations if crop.ranking is not None]
     if len(ranks) != len(set(ranks)) or len(crop_ids) != len(set(crop_ids)):
         hard_failure = True
@@ -281,4 +288,9 @@ def validate_ai_draft(*, draft: AIDecisionDraft, context: dict[str, Any],
         risk_assessment=draft.risk_assessment,
         agricultural_action_plan=sorted(draft.agricultural_action_plan, key=lambda item: item.priority),
         audit_and_explainability=audit,
+        sequence_analysis=draft.sequence_analysis,
+        estimated_outcomes={"scenario_estimates": context.get("planning_estimates", {}).get("scenario_estimates", []),
+                            "yield_forecast_status": "historical_benchmark_only",
+                            "unknown_economics": "Prices/costs are not inferred; margin stays null when incomplete."},
+        calendar_alternatives=context.get("planning_estimates", {}).get("calendar_alternatives", []),
     )

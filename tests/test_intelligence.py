@@ -141,6 +141,29 @@ def ai_draft(*, decision="revise_plan", evidence="scenario.0.calendar",
 
 
 class ContextBuilderTests(unittest.TestCase):
+    def test_planning_estimates_include_benchmarks_and_explicit_assumptions(self):
+        from grainstorm.intelligence.planning import enrich_context
+        context = enrich_context(build_ai_context(rice_analysis()))
+        estimates = context["planning_estimates"]
+        s = estimates["scenario_estimates"][0]
+        self.assertAlmostEqual(s["uncovered_water_m3_for_field"], 29072.5, places=2)
+        self.assertAlmostEqual(s["production_estimates"][0]["production_tonnes_for_field"], 19.570, places=3)
+        self.assertIn("Historical", s["production_estimates"][0]["limitation"])
+        self.assertEqual(len(s["production_estimates"][0]["yield_sensitivity"]), 3)
+        self.assertFalse(estimates["calendar_alternatives"][0]["calendar_fit_only"])
+        self.assertEqual(context["field"]["irrigation_status"], "unknown")
+        self.assertIn({"evidence_reference": "field.area", "value_path": [], "value": 4.2684, "units": "ha"}, context["allowed_numerical_claims"])
+
+    def test_calendar_alternative_in_supplied_window_is_proposal(self):
+        from grainstorm.intelligence.planning import enrich_context
+        data = rice_analysis()
+        data["request"]["preferred_start_date"] = "2024-02-01"
+        context = enrich_context(build_ai_context(data))
+        alternative = context["planning_estimates"]["calendar_alternatives"][0]
+        self.assertTrue(alternative["calendar_fit_only"])
+        self.assertEqual(alternative["schedule"][0]["plant_on"], "2024-02-01")
+        self.assertEqual(alternative["status"], "calendar_only_proposal")
+
     def test_missing_day_breaks_dry_spell(self):
         data = rice_analysis()
         data["environmental_context"]["sources"]["imerg"]["records"][1]["date"] = "2024-04-04"
@@ -173,6 +196,21 @@ class ContextBuilderTests(unittest.TestCase):
 
 
 class ValidatorTests(unittest.TestCase):
+    def test_exact_scalar_and_nested_claims_pass_and_bad_units_fail(self):
+        from grainstorm.intelligence.planning import enrich_context
+        context = enrich_context(build_ai_context(rice_analysis()))
+        claims = [c for c in context["allowed_numerical_claims"] if c["evidence_reference"] in {"field.area", "crop.rice.suitability"}]
+        data = ai_draft().model_dump()
+        data["numerical_claims"] = claims
+        report = validate_ai_draft(draft=AIDecisionDraft.model_validate(data), context=context,
+            analysis_identifier="test", model="test", response_id=None, token_usage={})
+        self.assertFalse(any(c.check == "numerical_consistency" for c in report.audit_and_explainability.validation_checks))
+        data["numerical_claims"][0]["units"] = "invented_units"
+        report = validate_ai_draft(draft=AIDecisionDraft.model_validate(data), context=context,
+            analysis_identifier="test", model="test", response_id=None, token_usage={})
+        check = next(c for c in report.audit_and_explainability.validation_checks if c.check == "numerical_consistency")
+        self.assertIn("supplied value", check.message)
+
     def test_model_cannot_claim_missing_soil_was_measured(self):
         draft = ai_draft()
         draft.resource_assessment.soil_properties.basis = "measured"
@@ -430,7 +468,7 @@ class OrchestratorAndApiTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(app.dependency_overrides.clear)
         response = TestClient(app).post("/api/v1/intelligence", json={"analysis": rice_analysis()})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["metadata"]["schema_version"], "1.1.0")
+        self.assertEqual(response.json()["metadata"]["schema_version"], "1.2.0")
 
 
 if __name__ == "__main__":

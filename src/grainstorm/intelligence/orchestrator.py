@@ -15,6 +15,7 @@ from grainstorm.intelligence.prompts import PROMPT_VERSION, SYSTEM_INSTRUCTIONS
 from grainstorm.intelligence.schemas import SCHEMA_VERSION
 from grainstorm.intelligence.schemas import GrainStormDecisionReport
 from grainstorm.intelligence.validator import validate_ai_draft
+from grainstorm.intelligence.planning import enrich_context
 
 
 def analysis_identifier(analysis: dict[str, Any]) -> str:
@@ -32,7 +33,7 @@ class IntelligenceOrchestrator:
         self.semaphore = asyncio.Semaphore(bounded_setting("GRAINSTORM_AI_MAX_CONCURRENT", 1, 1, 8))
 
     async def analyze(self, analysis: dict[str, Any]) -> GrainStormDecisionReport:
-        context = build_ai_context(analysis)
+        context = enrich_context(build_ai_context(analysis))
         key = hashlib.sha256(json.dumps({
             "context": context, "model": getattr(self.engine, "model", "injected"),
             "prompt_version": PROMPT_VERSION, "prompt": SYSTEM_INSTRUCTIONS, "schema_version": SCHEMA_VERSION,

@@ -113,7 +113,7 @@ curl --fail-with-body http://127.0.0.1:8000/api/v1/intelligence \
 
 ## Report schema and validation
 
-`GrainStormDecisionReport` version 1.1.0 retains all nine report sections:
+`GrainStormDecisionReport` version 1.2.0 retains all nine report sections:
 metadata, field_context, executive_summary, crop_recommendations,
 planting_and_harvest_plan, resource_assessment, risk_assessment,
 agricultural_action_plan, audit_and_explainability.
@@ -122,6 +122,24 @@ Metadata now adds `ai_provider: "gemini"` and `ai_response_id`. The deprecated
 `openai_response_id` is retained as null. Model identity/token usage comes from
 the SDK; field facts, content/report IDs, timestamp and validation outcomes come
 from Python. Existing request shape and endpoint path are unchanged.
+
+Version 1.2 adds `sequence_analysis` (Gemini compares every evaluated order),
+`estimated_outcomes` and `calendar_alternatives` (Python calculations). Historical
+yield is multiplied by hectares to estimate field production benchmarks. A labeled
+0.8/1.0/1.2 baseline-yield sensitivity explores assumed production changes; these
+are illustrative scenarios, not probability bounds or stress-adjusted forecasts.
+Water deficits and elemental N/P/K shortfalls are converted to whole-field quantities.
+Indicative withdrawal divides water deficit by supplied application efficiency,
+without claiming an exact irrigation schedule. Prices and costs remain unknown
+unless supplied. Calendar screening searches supplied/provisional windows in
+each evaluated order with supplied maturity and turnaround gaps; alternatives
+do not receive revised water/nutrient/yield claims without resimulation.
+
+Gemini receives exact permitted scalar numerical-claim paths and catalog units.
+The validator still rejects mismatched values/units; failure diagnostics now
+include the supplied path, value and units and resolved source value/units.
+An irrigation-disabled simulation is labeled unknown physical availability.
+Crop-specific GAEZ baseline overrides supersede general dataset metadata.
 
 The model generates only `AIDecisionDraft`. Its schedule status can only be
 `proposed`. Python assigns backend_validated, unvalidated, rejected or

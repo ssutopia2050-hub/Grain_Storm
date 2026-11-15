@@ -35,6 +35,8 @@ completed, and add new tasks here before treating them as project commitments.
 
 ## Next priorities
 
+- [x] Add v1.2 AI sequence analysis, reproducible historical production benchmarks, explicit yield sensitivity scenarios, whole-field resource estimates, calendar-only alternative planning and scalar numerical-claim templates with detailed validation diagnostics.
+
 - [x] Add intelligence endpoint, compact deterministic evidence context, Pydantic draft/report schemas and independent proposal validation. Migrate primary provider to Gemini using google-genai, persistent draft caching, atomic call budgets, concurrency/input/timeout/retry limits and offline SDK/API tests. See [intelligence API](intelligence.md).
 - [ ] Persist trusted analysis/configuration snapshots and rerun deterministic calculations for AI-proposed alternatives.
 - [ ] Add expert-reviewed AI evaluations, stage-resolved weather evidence, authenticated access and live Gemini evaluation explicitly authorized against verified free-tier quota before public use.
