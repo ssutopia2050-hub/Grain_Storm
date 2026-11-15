@@ -3,15 +3,15 @@
 
 The optional [AI decision engine](docs/intelligence.md) accepts an existing analysis
 at `POST /api/v1/intelligence`, generates a Gemini structured decision draft, and
-independently checks it before returning a versioned frontend report. Configure
+independently checks it before returning a versioned API decision report. Configure
 `GEMINI_API_KEY` server-side to enable generation. Existing analysis works without it.
 
 A generalized agricultural monitoring and environmental data analysis framework using NASA datasets.
 
 See the [project TODO](docs/TODO.md) for current priorities and follow-up work.
-Frontend developers should start with the [v1 API contract](docs/frontend_api_contract.md)
-and its [copyable TypeScript definitions](docs/frontend-api-types.ts).
-The normal product flow is now consolidated in the [single rotation-advice endpoint](docs/frontend_rotation_advice.md).
+API consumers should start with the [v1 API contract](docs/api_contract.md)
+and its [copyable TypeScript definitions](docs/api-types.ts).
+The normal product flow is now consolidated in the [single rotation-advice endpoint](docs/rotation_advice.md).
 It also supports optional 16-day operational weather, explicit longer-term
 weather scenarios, FAO-56 dual crop coefficients, sourced farmer irrigation
 overrides and area-fraction management zones. Existing requests continue to
@@ -24,47 +24,52 @@ The current challenge alignment and resource shortlist are in
 The v1 crop pair and reference assumptions are documented in
 [starter crop profiles](docs/crop_profiles_v1.md).
 
-## Current Status
+## Current scope
 
-**Milestone 1: NASA POWER weather data acquisition — complete.**
+GrainStorm is a Python backend API and command-line project for agricultural
+rotation analysis, environmental data acquisition, and optional AI interpretation.
+Its deliverables are versioned JSON contracts, reproducible calculations, source
+adapters, background acquisition workers, and documented command-line workflows.
+A hosted UI, farmer accounts, browser sessions, and dashboard development are
+outside the current scope. The separate frontend prototype is discontinued.
 
-**Milestone 2: Historical soil-moisture acquisition — initial connector added.**
-The project can retrieve hourly ERA5-Land soil moisture at four modeled depths.
-This is reanalysis data in volumetric units, not a field sensor reading or a
-crop-specific root-zone estimate. See [the soil-moisture source notes](docs/soil_moisture.md).
+Implemented capabilities include polygon-derived field geometry, seven crop
+profiles, regional calendars and suitability, water and nutrient balances,
+conditional economics, satellite acquisition jobs and caching, and a Gemini
+interpretation layer with independent consistency checks. Regional baselines and
+modeled outcomes retain their provenance and limitations. The API remains a local
+development service; public deployment and scientific validation are pending.
 
-Grain Storm currently supports downloading daily environmental observations from NASA POWER for a specified geographical coordinate and date range.
-
-### Retrieved variables
-
-| Parameter | Description |
-|---|---|
-| T2M | Temperature at 2 metres |
-| PRECTOTCORR | Corrected precipitation |
-| RH2M | Relative humidity at 2 metres |
-
-## Architecture
+## Project structure
 
 ```text
 Grain_Storm/
-├── data/
-│   ├── raw/
-│   └── processed/
-├── docs/
-├── notebooks/
-├── tests/
-└── src/
-    └── grainstorm/
-        ├── sources/
-        │   └── power.py
-        ├── cli.py
-        └── __main__.py
+├── src/grainstorm/
+│   ├── api.py                 # FastAPI routes and request models
+│   ├── rotation_advice.py     # Integrated analysis orchestration
+│   ├── planner.py             # Deterministic scenario calculations
+│   ├── input_resolver.py      # Explicit inputs and sourced baselines
+│   ├── crops.py               # Versioned crop reference profiles
+│   ├── geometry.py            # Field geometry and area
+│   ├── fao56.py               # Water-balance helpers
+│   ├── context.py             # Shared environmental context/cache
+│   ├── satellite_jobs.py      # Durable acquisition worker and jobs
+│   ├── intelligence/          # Gemini, report schemas, validation/cache
+│   ├── sources/               # External dataset adapters
+│   ├── processing/            # Normalization, quality and analysis
+│   └── *.py                   # Acquisition/processing CLI entry points
+├── tests/                     # Offline unit and API tests
+├── examples/                  # Reproducible request and planner inputs
+├── docs/                      # Contracts, setup, research and roadmap
+├── data/raw/                  # Original acquired responses/files
+├── data/processed/            # Normalized outputs and provenance
+├── notebooks/                 # Exploratory research
+├── pyproject.toml             # Package dependencies and CLI commands
+└── requirements.txt           # Environment installation requirements
 ```
 
-- `sources/`: External data source integrations.
-- `data/raw/`: Original API responses.
-- `data/processed/`: Parsed datasets and metadata.
-- `tests/`: Automated tests.
+See the [documentation index](docs/README.md) for the API workflow, operations,
+research notes, and current [roadmap](docs/TODO.md).
 
 ## Setup
 

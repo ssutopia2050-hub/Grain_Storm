@@ -83,7 +83,7 @@ expiry/retry of interrupted calls that could silently consume quota twice.
 The database contains farm context interpretations and should stay private.
 Cache cleanup, retention policies and administration UI remain future work.
 
-## API and frontend flow
+## API workflow
 
 Endpoints remain:
 - `POST /v1/rotation-advice`: original agricultural analysis.
@@ -155,7 +155,7 @@ Extra fields and nonfinite floats are rejected. Reports remain non-actionable
 until further review; resolving evidence IDs cannot establish every free-text
 agronomic claim. Historical suitability is not crop-success probability.
 
-Version 1.3 adds `farm_plan` with six frontend sections: `favorable_periods`,
+Version 1.3 adds `farm_plan` with six report sections: `favorable_periods`,
 `rotation_scenarios`, `growth_and_harvest_stages`, `harvest_yield_assessment`,
 `irrigation_by_stage_and_gap`, and `dry_spell_plan`. Gemini supplies complementary
 `planning_guidance` addressing each question. Fresh rotation analyses now include

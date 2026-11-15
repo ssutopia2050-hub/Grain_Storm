@@ -1,12 +1,12 @@
-# Grain Storm frontend API contract
+# Grain Storm API contract
 
-This document describes the current `v1` backend contract for the frontend.
+This document describes the current `v1` backend contract for the client.
 It reflects the running FastAPI application, not the intended final agronomic
 model. The live schema is always available at `/openapi.json`, with interactive
 documentation at `/docs`.
 
-Companion TypeScript definitions: [frontend-api-types.ts](frontend-api-types.ts).
-For the product UI, use the simplified [single rotation-advice endpoint](frontend_rotation_advice.md).
+Companion TypeScript definitions: [api-types.ts](api-types.ts).
+For the product UI, use the simplified [single rotation-advice endpoint](rotation_advice.md).
 Working request examples: [context_request.json](../examples/context_request.json)
 and [planner_cached_demo.json](../examples/planner_cached_demo.json). The
 synthetic [rotation_calendar_demo.json](../examples/rotation_calendar_demo.json)
@@ -23,13 +23,13 @@ agronomic and financial numbers.
 - Environmental day boundary: UTC
 - Authentication: none in the current local prototype
 - Allowed development origins: `localhost` or `127.0.0.1` on ports `5173` and
-  `3000`. A deployed frontend origin must be added to backend CORS settings.
-- Recommended frontend environment variable: `VITE_API_BASE_URL`
+  `3000`. A deployed client origin must be added to backend CORS settings.
+- Configure the API base URL in the calling application or script.
 
 Never turn a missing or `null` measurement into zero. Zero rainfall is a valid
 measurement; missing rainfall means the plan cannot be calculated.
 
-## Frontend flow
+## Client flow
 
 ```text
 POST /v1/context
@@ -58,7 +58,7 @@ POST /v1/plans
        +-- 422 -> show input/coverage error
 ```
 
-The frontend should retain the original request while jobs are running. Job
+The client should retain the original request while jobs are running. Job
 completion does not push a result to the browser; retry the original request.
 
 ## Endpoint summary
@@ -80,7 +80,7 @@ completion does not push a result to the browser; retry the original request.
 | `POST` | `/v1/plans` | Compare crop sequences | `200` or `202` |
 | `POST` | `/v1/weather/era5` | Low-level ERA5 fetch; diagnostic/advanced use | `200` |
 
-The recommended product flow uses `/v1/context` and `/v1/plans`. The frontend
+The recommended product flow uses `/v1/context` and `/v1/plans`. The client
 normally should not call `/v1/weather/era5` directly.
 
 ## 1. Health
@@ -202,7 +202,7 @@ intentional drainage, so rice irrigation totals must be shown as incomplete.
 points it returns the dominant SSURGO map component, horizon texture, organic
 matter, pH, drainage, hydrologic group, and thickness-weighted 0–30 cm
 available water capacity. For points outside SSURGO coverage, the normal `200`
-response has `status: "unavailable"` and `soil: null`, so the frontend can ask
+response has `status: "unavailable"` and `soil: null`, so the client can ask
 for another country-specific source or manual soil inputs.
 
 These values describe mapped soil components rather than a field sample.
@@ -219,7 +219,7 @@ value such as `(D)` remains in `raw_value` while numeric `value` is `null`.
 
 The backend must have `NASS_QUICKSTATS_API_KEY` configured. Without it the
 endpoint returns `status: "auth_required"`; the secret must never be placed in
-frontend code. These state aggregates are U.S.-only baselines and should not be
+client code. These state aggregates are U.S.-only baselines and should not be
 presented as a farm-specific price or yield.
 
 ## 3. Environmental context
@@ -274,7 +274,7 @@ be explicitly supplied together.
 
 Each requested source contains:
 
-| Field | Type | Frontend meaning |
+| Field | Type | Client meaning |
 |---|---|---|
 | `status` | string | Source coverage state; see below |
 | `product` | string | Exact backend product/version |
@@ -377,7 +377,7 @@ NASA POWER:
 - `PRECTOTCORR`: corrected precipitation, mm/day.
 - `RH2M`: relative humidity at 2 m, percent.
 
-The context endpoint returns distinct products. The frontend should never add
+The context endpoint returns distinct products. The client should never add
 or average their rainfall fields together.
 
 ## 4. Satellite job polling
@@ -587,13 +587,13 @@ planner applies rainfall and `ET0 × fallow_kc` through every uncropped day.
 Economics uses the supplied baseline yield directly; the current engine does
 not claim a stress-adjusted yield prediction. Ranking excludes scenarios that
 are not calendar-feasible or lack a metric required by a positive weight. Its
-score is a transparent comparison using frontend/user-selected weights—not a
+score is a transparent comparison using client/user-selected weights—not a
 NASA or agronomic recommendation.
 
 ### Mutually exclusive weather inputs
 
 The API also supports raw `weather` and `imerg_rainfall` arrays for testing and
-advanced clients. The product frontend should omit them and send
+advanced clients. The product client should omit them and send
 `weather_source`. Never send both `weather` and `weather_source`, or both
 `imerg_rainfall` and `weather_source.provider: "imerg_era5"`.
 
@@ -625,7 +625,7 @@ Each scenario contains:
 | `sequence` | One result object per crop |
 | `calendar_status` | `feasible`, `infeasible`, or `not_fully_evaluated` |
 | `calendar_feasible` | `true`, `false`, or `null` when required calendar inputs are missing |
-| `schedule_issues`, `schedule_warnings` | Frontend-readable reason objects |
+| `schedule_issues`, `schedule_warnings` | Client-readable reason objects |
 | `rotation_span_days` | Days from first planting through final harvest |
 | `total_configured_gap_days` | Explicit harvest-to-next-crop gaps |
 | `total_calendar_wait_days` | Extra wait added to reach valid planting windows |
@@ -698,7 +698,7 @@ decision score. It does **not** return:
   use a bounded Open-Meteo operational forecast (up to 16 days); longer future
   plans require an explicit caller-supplied weather scenario.
 
-The frontend must not label the highest weighted score “NASA recommended.” Show
+The client must not label the highest weighted score “NASA recommended.” Show
 the selected weights, exclusions, input sources and warning beside the rank.
 
 ## 7. Plan pending response (`202`)
@@ -737,7 +737,7 @@ job IDs, then resend the exact original plan request.
 
 ## 8. Errors
 
-| HTTP status | Meaning | Frontend action |
+| HTTP status | Meaning | Client action |
 |---|---|---|
 | `200` | Request handled; context sources can still be partial | Inspect per-source status |
 | `202` | Plan awaits active satellite jobs | Poll and retry |
@@ -760,21 +760,11 @@ FastAPI model validation uses:
 ```
 
 Application errors can instead use `{"detail":"message"}` or a structured
-`detail` object. The frontend error parser must accept all three forms.
+`detail` object. The client error parser must accept all three forms.
 
-## 9. Recommended frontend screens
+## 9. Client responsibilities
 
-1. **Field setup:** coordinate/map, area, soil-water and optional mineral-N
-   assumptions, irrigation availability.
-2. **Data readiness:** source cards for IMERG, SMAP and ERA5; cached/processing/
-   complete/error state; requested date coverage.
-3. **Crop screening:** GAEZ suitability cards with baseline, resolution and a
-   prominent “regional screening, not field recommendation” explanation.
-4. **Rotation setup:** crop choices, order, start date and reviewed crop profile.
-5. **Comparison:** scenario summary cards plus crop timeline, water chart,
-   irrigation events and simple N balance.
-6. **Data and limitations:** source/version, dates, units, missing/partial flags,
-   model assumptions and provenance download.
+Retain request inputs while jobs run, handle all response states, preserve provenance and missing values, and expose validation findings to downstream consumers. A graphical interface is outside this project’s scope.
 
 ## 10. Current contract limitations
 
@@ -782,13 +772,13 @@ Application errors can instead use `{"detail":"message"}` or a structured
   generic dictionaries in OpenAPI. Use the companion TypeScript definitions and
   this document until typed Pydantic response models are added.
 - Context provenance is intentionally complete and can make responses large.
-  A future frontend-specific summary endpoint should keep diagnostics optional.
+  A future client-specific summary endpoint should keep diagnostics optional.
 - There is no websocket or callback. Poll jobs and retry the original request.
 - API authentication, rate limiting and production CORS are not implemented.
 - This is `v1`; coordinate/date/source fields should be treated as stable, while
   agronomic inputs and scoring will evolve as reviewed crop/soil data is added.
 
-## 11. Minimal frontend request handling
+## 11. Minimal client request handling
 
 ```ts
 import type {
@@ -798,9 +788,9 @@ import type {
   PlanPendingResponse,
   PlanRequest,
   PlanResponse,
-} from "./frontend-api-types";
+} from "./client-api-types";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE = "http://127.0.0.1:8000"; // Set for your deployment.
 
 async function postJson<T>(path: string, body: unknown): Promise<{status: number; data: T}> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -833,5 +823,5 @@ export async function getJob(id: string): Promise<JobDetail> {
 ```
 
 This example deliberately leaves UI state management and polling cancellation to
-the frontend framework. Cancel timers when the component unmounts or when every
+the client framework. Cancel timers when the component unmounts or when every
 job reaches a terminal state.

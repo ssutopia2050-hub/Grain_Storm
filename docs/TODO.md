@@ -14,12 +14,12 @@ completed, and add new tasks here before treating them as project commitments.
 - [x] Add a first transparent crop-sequence planner prototype with user-supplied rainfall, soil-water, and net mineral-nitrogen inputs; report field-scale totals and clearly label the synthetic demo and limitations.
 - [x] Select grain maize and grain soybean as the v1 crop pair and document broad reference water profiles plus the need for local calendars and nutrient inputs. See [v1 crop profiles](crop_profiles_v1.md).
 - [x] Expose versioned maize and soybean reference profiles through the API, including FAO reference calendars/Kc values, GAEZ crop identifiers, source links, nitrogen-input guardrails, planner-ready template generation, and result provenance.
-- [x] Expand the starter catalog with wheat, sorghum, chickpea, and sunflower; wire them into GAEZ suitability/calendars, available yield baselines, USDA records, the rotation endpoint, and frontend types.
-- [x] Add wetland/paddy rice across crop profiles, verified GAEZ `rcw` suitability/calendar/yield layers, FAOSTAT nutrient removal, NASS hundredweight conversion, rotation advice and frontend types; keep paddy hydrology limitations explicit.
+- [x] Expand the starter catalog with wheat, sorghum, chickpea, and sunflower; wire them into GAEZ suitability/calendars, available yield baselines, USDA records, the rotation endpoint, and API client types.
+- [x] Add wetland/paddy rice across crop profiles, verified GAEZ `rcw` suitability/calendar/yield layers, FAOSTAT nutrient removal, NASS hundredweight conversion, rotation advice and API client types; keep paddy hydrology limitations explicit.
 - [x] Add on-demand GAEZ v4 location screening for maize and soybean using the official Module V ImageServer. Lock exact 1981–2010 historical, rainfed, high-input all-land rasters; return normalized index, documented class, raster provenance, resolution and limitations without global downloads.
-- [x] Add rotation calendar feasibility: explicit between-crop gaps, recurring local planting windows (including New Year wrap), fixed-date versus next-window scheduling, planning-horizon checks, total rotation span, and frontend-readable issues/warnings. Legacy scenarios remain valid but are marked not fully evaluated when calendar inputs are absent.
+- [x] Add rotation calendar feasibility: explicit between-crop gaps, recurring local planting windows (including New Year wrap), fixed-date versus next-window scheduling, planning-horizon checks, total rotation span, and client-readable issues/warnings. Legacy scenarios remain valid but are marked not fully evaluated when calendar inputs are absent.
 - [x] Add an explicit decision-support MVP for the remaining rotation factors: root-depth-scaled water capacity, fallow rainfall/ET, sourced N/P/K flow budgets, separate biological fixation reporting, sourced pH/organic-matter effects, sourced pest/disease transition scores, baseline yield/revenue/cost accounting, and feasibility-gated user-weighted ranking.
-- [x] Add optional frontend-driven farm inputs: dated/depth-specific soil tests, management provenance, variety maturity, yield-scaled nutrient-removal coefficients, fertilizer recovery, residue/loss/fixation flows, irrigation efficiency/seasonal limits/costs, and an explicit missing-input assessment. Calculations activate only when their inputs are provided.
+- [x] Add optional caller-supplied farm inputs: dated/depth-specific soil tests, management provenance, variety maturity, yield-scaled nutrient-removal coefficients, fertilizer recovery, residue/loss/fixation flows, irrigation efficiency/seasonal limits/costs, and an explicit missing-input assessment. Calculations activate only when their inputs are provided.
 - [x] Add optional FAO-56 dual crop coefficients (`Kcb + Ke`) with root-zone water-stress reduction (`Ks`), while retaining the existing stage-Kc model for backward compatibility.
 - [x] Add farmer irrigation decisions (`accept`, `skip`, `replace`) that retain both the automatic recommendation and the applied amount with source provenance.
 - [x] Add area-fraction management zones with per-zone soil/management/irrigation overrides, independent calculations and area-weighted field aggregation.
@@ -32,6 +32,14 @@ completed, and add new tasks here before treating them as project commitments.
 - [x] Add a reusable NASA AppEEARS point-sampling pipeline for discovering and requesting supported land products, retaining raw downloads and request provenance. Product-specific normalization and planner integration remain pending.
 - [x] Add a bounded NASA Earthdata granule downloader and a daily GPM IMERG Final V07 acquisition command.
 - [x] Add a daily normalizer for AppEEARS SMAP L4 root-zone and surface point samples, retaining sample counts and source metadata. Planner integration remains pending.
+
+## Backend-only direction
+
+- [x] Define the Python API, CLI, source adapters, workers, and decision reports as the project deliverables.
+- [x] Retire frontend/dashboard development from the roadmap and rename integration documentation for general API consumers.
+- [ ] Add reproducible end-to-end API examples covering processing, missing-input, preliminary, complete, and intelligence validation states.
+- [ ] Harden deployment configuration, authentication, rate limits, observability, and health/readiness checks before public hosting.
+- [ ] Add persistent external point-data caching and distinguish upstream timeouts, unavailable coverage, invalid requests, and provider quota errors.
 
 ## Next priorities
 

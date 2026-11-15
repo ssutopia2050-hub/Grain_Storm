@@ -1,11 +1,11 @@
-# Frontend handoff: one rotation-advice endpoint
+# Rotation-advice API guide
 
-The farmer-facing frontend only needs to orchestrate one endpoint:
+The farmer-facing client only needs to orchestrate one endpoint:
 
 `POST /v1/rotation-advice`
 
 The backend calls the crop, GAEZ, soil, rainfall, soil-moisture, ET0 and planner
-components. The frontend should not call those individual endpoints for the
+components. The client should not call those individual endpoints for the
 normal product flow.
 
 ## First request
@@ -62,7 +62,7 @@ unavailable until economics are supplied.
 
 The `field` result includes `area_m2`, `area_ha`, `area_acres` and
 `perimeter_m`. All whole-field water, nutrient, production, cost and revenue
-totals use this polygon-derived hectare value; the frontend does not calculate
+totals use this polygon-derived hectare value; the client does not calculate
 area independently.
 
 ## Response states
@@ -70,7 +70,7 @@ area independently.
 ### `202` — `status: "processing"`
 
 Satellite subsets are being acquired. Show a single “Preparing field analysis”
-screen. The response includes `jobs`; the frontend may poll the existing job
+screen. The response includes `jobs`; the client may poll the existing job
 endpoint or simply repeat the same rotation-advice request after a delay.
 
 ### `200` — `status: "needs_input"`
@@ -118,7 +118,7 @@ Typical additions are:
 
 Each crop can add `planting_windows`, `variety`, `agronomy` and `economics`
 under `crop_inputs.<crop_id>`. The live Swagger schema and
-`frontend-api-types.ts` contain their field shapes.
+`api-types.ts` contain their field shapes.
 
 ## Optional precision controls
 
@@ -166,7 +166,7 @@ labour, machinery, crop protection, land preparation, harvesting, transport,
 insurance and any custom cost. The response calculates per-crop and whole-field
 production, marketable yield, revenue, additional income, every cost line,
 irrigation cost, net margin, return on cost, break-even price and break-even
-yield. The frontend must set `cost_completeness_confirmed: true` for itemized
+yield. The client must set `cost_completeness_confirmed: true` for itemized
 costs, preventing a partial list from being presented as a complete farm budget.
 
 ### `200` — `status: "complete"`
@@ -217,7 +217,7 @@ replace the low-confidence values listed in `recommended_replacements`.
   irrigation amount excludes puddling, standing-water, seepage, percolation
   and drainage requirements; display the `water_model_limitation` warning.
 - GAEZ has no standalone 2010 chickpea actual-yield raster, so that specific
-  baseline is returned as unavailable; the frontend must request a local yield.
+  baseline is returned as unavailable; the client must request a local yield.
 
 The lower-level endpoints remain useful for diagnostics and research, but they
-are not part of the normal frontend orchestration.
+are not part of the normal client orchestration.

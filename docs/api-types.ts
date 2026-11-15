@@ -1,4 +1,4 @@
-// Grain Storm v1 frontend types. Keep aligned with frontend_api_contract.md.
+// Grain Storm v1 API client types. Keep aligned with api_contract.md.
 
 export type ISODate = string;
 export type SourceName = "imerg" | "smap" | "era5" | "power";
