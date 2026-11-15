@@ -293,7 +293,7 @@ class GeminiEngineTests(unittest.IsolatedAsyncioTestCase):
         def handler(request):
             body = json.loads(request.content)
             self.assertEqual(body["generationConfig"]["responseMimeType"], "application/json")
-            self.assertIn("responseSchema", body["generationConfig"])
+            self.assertIn("responseJsonSchema", body["generationConfig"])
             return httpx.Response(200, json={
                 "candidates": [{"content": {"role": "model", "parts": [{"text": ai_draft().model_dump_json()}]}, "finishReason": "STOP"}],
                 "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 20, "totalTokenCount": 30},
@@ -325,7 +325,7 @@ class GeminiEngineTests(unittest.IsolatedAsyncioTestCase):
         call = client.models.generate_content.call_args.kwargs
         self.assertEqual(call["model"], "gemini-test")
         self.assertEqual(call["config"].response_mime_type, "application/json")
-        self.assertIs(call["config"].response_schema, AIDecisionDraft)
+        self.assertIn("properties", call["config"].response_json_schema)
 
     async def test_invalid_and_incomplete(self):
         from grainstorm.intelligence.gemini_engine import GeminiDecisionEngine

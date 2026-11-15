@@ -19,6 +19,7 @@ def classify_error(exc: Exception) -> IntelligenceGenerationError:
     data = getattr(exc, "response_json", None)
     error = data.get("error", {}) if isinstance(data, dict) else {}
     details = error.get("details", []) if isinstance(error, dict) else []
+    message = str(error.get("message", "")).lower() if isinstance(error, dict) else ""
     reasons = {item.get("reason") for item in details if isinstance(item, dict)}
     if reasons & {"API_KEY_INVALID", "API_KEY_EXPIRED", "API_KEY_NOT_FOUND"} or code == 401:
         return IntelligenceGenerationError("Gemini rejected the API key. Replace GEMINI_API_KEY with an active Google AI Studio key and restart.", code="gemini_invalid_key", status_code=503)
@@ -27,6 +28,14 @@ def classify_error(exc: Exception) -> IntelligenceGenerationError:
     if code == 404:
         return IntelligenceGenerationError("The configured Gemini model or API resource is unavailable. Check GRAINSTORM_GEMINI_MODEL against your account's available models.", code="gemini_model_unavailable", status_code=503)
     if code == 400:
+        if "api key not valid" in message:
+            return IntelligenceGenerationError("Gemini rejected the API key. Check GEMINI_API_KEY.", code="gemini_invalid_key", status_code=503)
+        if "schema" in message and any(word in message for word in ("complex", "nesting", "depth", "states")):
+            return IntelligenceGenerationError("Gemini rejected the output schema complexity or nesting depth.", code="gemini_schema_too_complex")
+        if "schema" in message:
+            return IntelligenceGenerationError("Gemini rejected a structured-output schema field.", code="gemini_schema_rejected")
+        if "location" in message or "region" in message or "country" in message:
+            return IntelligenceGenerationError("Gemini rejected the service location or account region.", code="gemini_region_unsupported", status_code=503)
         return IntelligenceGenerationError("Gemini rejected the request configuration. The model may not support this output schema or generation settings; backend review is required.", code="gemini_invalid_request", status_code=502)
     if code in {500, 502, 503, 504}:
         return IntelligenceGenerationError("Gemini is temporarily unavailable. Retry within your configured call budget.", code="gemini_service_unavailable", retryable=True, status_code=503)
@@ -73,7 +82,7 @@ class GeminiDecisionEngine:
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTIONS,
             response_mime_type="application/json",
-            response_schema=AIDecisionDraft,
+            response_json_schema=AIDecisionDraft.model_json_schema(),
             max_output_tokens=8000,
         )
 
